@@ -81,21 +81,16 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
         st = await get_settings(s)
         if getattr(st, "promo_enabled", False):
             # Only suggest optional channels the user has NOT joined yet.
-            # If they are already in all of them, there is nothing to join,
-            # so skip the promo entirely (don't bore the user).
+            # If there is nothing left to join (no optional channels, or the
+            # user is already a member of all of them) we show NOTHING — there
+            # is no point asking someone to join channels they already joined.
             unjoined = await unjoined_optional_channels(context.bot, s, chat_id)
-            promo_text = (st.promo_message or "").strip()
-            has_any_optional = bool(await optional_channels(s))
             # Rotate: show only N sponsor channels at a time (admin-set).
             opt = await pick_promo_channels(
                 s, unjoined, getattr(st, "promo_count", 3)
             )
-            # Decide whether to show the promo at all:
-            #   - there are un-joined channels to suggest -> show, OR
-            #   - no optional channels configured at all but admin set promo
-            #     text -> show as a plain announcement.
-            should_show = bool(opt) or (promo_text and not has_any_optional)
-            if should_show:
+            if opt:
+                promo_text = (st.promo_message or "").strip()
                 body = promo_text or "برای حمایت از اسپانسرها، می‌توانید در کانال‌های زیر عضو شوید 🙏"
                 try:
                     await update.effective_message.reply_text(
@@ -162,9 +157,12 @@ async def on_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.wants_notify = True
         await s.commit()
         pname = None
+        plink = None
         if pid is not None:
             p = await s.get(Proxy, pid)
-            pname = p.name if p else None
+            if p:
+                pname = p.name
+                plink = p.link
     await q.answer(
         "گزارش شما ثبت شد ✅ به محض آماده‌شدن پروکسی جدید به شما اطلاع داده می‌شود.",
         show_alert=True,
@@ -181,7 +179,7 @@ async def on_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for admin_id in ADMIN_CHAT_IDS:
         try:
             await context.bot.send_message(
-                admin_id, text, reply_markup=broken_report_kb(pid or 0)
+                admin_id, text, reply_markup=broken_report_kb(pid or 0, plink)
             )
         except Exception:
             pass

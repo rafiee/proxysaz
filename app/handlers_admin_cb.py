@@ -6,9 +6,7 @@ from telegram.ext import ContextTypes
 
 from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User
-from .keyboards import selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb, broken_report_kb
-from .proxy_utils import test_proxy
-from .proxy_utils import test_proxy
+from .keyboards import selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb
 
 
 def _is_admin(uid):
@@ -21,68 +19,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("دسترسی ندارید.", show_alert=True)
         return
     data = q.data or ""
-
-    # ── broken-proxy report: admin runs a quick reachability test ──
-    if data.startswith("rpt_test:"):
-        pid = int(data.split(":", 1)[1])
-        async with async_session() as s:
-            p = await s.get(Proxy, pid)
-            if p is None:
-                await q.answer("پروکسی یافت نشد (شاید حذف شده).", show_alert=True)
-                return
-            server, port, pname = p.server, p.port, p.name
-        await q.answer("در حال تست... ⏳")
-        result = await test_proxy(server, port)
-        if result["ok"]:
-            msg = (
-                f"✅ پروکسی «{pname}» در دسترس است.\n"
-                f"آدرس: {server}:{port}\n"
-                f"تاخیر اتصال TCP: {result['latency_ms']} ms\n\n"
-                "توجه: این تست فقط باز بودن پورت را بررسی می‌کند، نه صحت کامل secret/handshake را."
-            )
-        else:
-            msg = (
-                f"❌ پروکسی «{pname}» پاسخ نداد.\n"
-                f"آدرس: {server}:{port}\n"
-                f"خطا: {result['error']}\n\n"
-                "می‌توانید این پروکسی را غیرفعال کنید."
-            )
-        try:
-            await q.message.reply_text(msg, reply_markup=broken_report_kb(pid))
-        except Exception:
-            pass
-        return
-
-    # ── broken-proxy report: admin runs a quick reachability test ──
-    if data.startswith("rpt_test:"):
-        pid = int(data.split(":", 1)[1])
-        async with async_session() as s:
-            p = await s.get(Proxy, pid)
-            if p is None:
-                await q.answer("پروکسی یافت نشد (شاید حذف شده).", show_alert=True)
-                return
-            server, port, pname = p.server, p.port, p.name
-        await q.answer("در حال تست... ⏳")
-        result = await test_proxy(server, port)
-        if result["ok"]:
-            msg = (
-                f"✅ پروکسی «{pname}» در دسترس است.\n"
-                f"آدرس: {server}:{port}\n"
-                f"تاخیر اتصال TCP: {result['latency_ms']} ms\n\n"
-                "توجه: این تست فقط باز بودن پورت را بررسی می‌کند، نه صحت کامل secret/handshake را."
-            )
-        else:
-            msg = (
-                f"❌ پروکسی «{pname}» پاسخ نداد.\n"
-                f"آدرس: {server}:{port}\n"
-                f"خطا: {result['error']}\n\n"
-                "می‌توانید این پروکسی را غیرفعال کنید."
-            )
-        try:
-            await q.message.reply_text(msg, reply_markup=broken_report_kb(pid))
-        except Exception:
-            pass
-        return
 
     # ── broken-proxy report: admin deactivates the proxy ──
     if data.startswith("rpt_off:"):

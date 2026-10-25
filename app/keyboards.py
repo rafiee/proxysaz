@@ -135,12 +135,18 @@ def notify_prompt_kb(proxy_id: int):
     ])
 
 
-def broken_report_kb(proxy_id: int):
-    """Buttons attached to the admin notice when a user reports a broken proxy."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🧪 تست پروکسی", callback_data=f"rpt_test:{proxy_id}")],
-        [InlineKeyboardButton("⚪️ غیرفعال کردن این پروکسی", callback_data=f"rpt_off:{proxy_id}")],
-    ])
+def broken_report_kb(proxy_id: int, link: str = None):
+    """Buttons attached to the admin notice when a user reports a broken proxy.
+
+    If `link` is given, a URL 'Test' button is added that opens the proxy in
+    the admin's own Telegram — exactly like a normal user connecting — so the
+    admin tests it with their real client/network instead of a server-side probe.
+    """
+    rows = []
+    if link:
+        rows.append([InlineKeyboardButton("🧪 تست پروکسی (اتصال)", url=link)])
+    rows.append([InlineKeyboardButton("⚪️ غیرفعال کردن این پروکسی", callback_data=f"rpt_off:{proxy_id}")])
+    return InlineKeyboardMarkup(rows)
 
 
 def promo_admin_kb(enabled: bool):
