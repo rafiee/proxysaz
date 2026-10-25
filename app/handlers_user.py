@@ -8,8 +8,8 @@ from .keyboards import (
     user_main_menu, admin_main_menu, connect_button, join_channels_kb,
     proxy_delivery_kb, broken_report_kb, promo_channels_kb,
 )
-from .membership import missing_channels, optional_channels
-from .rotation import pick_proxy, mark_served
+from .membership import missing_channels, optional_channels, unjoined_optional_channels
+from .rotation import pick_proxy, mark_served, pick_promo_channels
 
 GET_PROXY_TEXT = "🚀 دریافت پروکسی"
 
@@ -80,9 +80,22 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
         # Optional sponsor promo shown AFTER the proxy.
         st = await get_settings(s)
         if getattr(st, "promo_enabled", False):
-            opt = await optional_channels(s)
+            # Only suggest optional channels the user has NOT joined yet.
+            # If they are already in all of them, there is nothing to join,
+            # so skip the promo entirely (don't bore the user).
+            unjoined = await unjoined_optional_channels(context.bot, s, chat_id)
             promo_text = (st.promo_message or "").strip()
-            if promo_text or opt:
+            has_any_optional = bool(await optional_channels(s))
+            # Rotate: show only N sponsor channels at a time (admin-set).
+            opt = await pick_promo_channels(
+                s, unjoined, getattr(st, "promo_count", 3)
+            )
+            # Decide whether to show the promo at all:
+            #   - there are un-joined channels to suggest -> show, OR
+            #   - no optional channels configured at all but admin set promo
+            #     text -> show as a plain announcement.
+            should_show = bool(opt) or (promo_text and not has_any_optional)
+            if should_show:
                 body = promo_text or "برای حمایت از اسپانسرها، می‌توانید در کانال‌های زیر عضو شوید 🙏"
                 try:
                     await update.effective_message.reply_text(

@@ -43,6 +43,9 @@ class BotSettings(Base):
     # stored as Telegram-HTML. Shown together with buttons for OPTIONAL channels.
     promo_enabled = Column(Boolean, default=False, nullable=False)
     promo_message = Column(Text, nullable=True)
+    # How many OPTIONAL (sponsor) channels to show the user at once, so a large
+    # pool of channels is rotated instead of dumping them all (anti-boredom).
+    promo_count = Column(Integer, default=3, nullable=False)
 
 
 class Channel(Base):
@@ -52,6 +55,9 @@ class Channel(Base):
     title = Column(String(255))
     invite_link = Column(Text, nullable=True)
     is_required = Column(Boolean, default=True, nullable=False)
+    # How many times this channel has been shown as an optional/sponsor
+    # suggestion. Used to rotate promo channels by least-shown-first.
+    shown_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -112,6 +118,8 @@ _MIGRATIONS = [
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS promo_enabled BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS promo_message TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS wants_notify BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS promo_count INTEGER NOT NULL DEFAULT 3",
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS shown_count INTEGER NOT NULL DEFAULT 0",
 ]
 
 

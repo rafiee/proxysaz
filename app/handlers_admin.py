@@ -113,6 +113,19 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return True
 
+    if action == "promo_count":
+        context.user_data.pop("await", None)
+        if not text.isdigit() or int(text) <= 0:
+            await update.message.reply_text("یک عدد صحیح بزرگ‌تر از صفر بفرستید (مثلاً 3).")
+            return True
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.promo_count = int(text)
+            await s.commit()
+        await update.message.reply_text(f"در هر بار حداکثر {text} کانال اختیاری نمایش داده می‌شود ✅")
+        await _promo_panel(update)
+        return True
+
     if action == "rot_hours":
         context.user_data.pop("await", None)
         if not text.isdigit() or int(text) <= 0:
@@ -195,13 +208,15 @@ async def _promo_panel(update: Update):
         st = await get_settings(s)
         enabled = getattr(st, "promo_enabled", False)
         has_msg = bool((st.promo_message or "").strip())
+        count = getattr(st, "promo_count", 3)
     status = "روشن 🟢" if enabled else "خاموش ⚪️"
     msg_state = "تنظیم شده" if has_msg else "خالی"
     await update.message.reply_text(
         "📝 پیام تبلیغاتی (پس از تحویل پروکسی نمایش داده می‌شود)\n"
-        f"وضعیت: {status} | متن: {msg_state}\n\n"
+        f"وضعیت: {status} | متن: {msg_state} | تعداد نمایشی: {count}\n\n"
         "کانال‌های اختیاری (اسپانسر) همان کانال‌هایی هستند که در بخش کانال‌ها "
-        "روی حالت «اختیاری» تنظیم شده‌اند و زیر پیام تبلیغاتی به کاربر پیشنهاد می‌شوند.",
+        "روی حالت «اختیاری» تنظیم شده‌اند و زیر پیام تبلیغاتی به کاربر پیشنهاد می‌شوند.\n"
+        "فقط کانال‌هایی که کاربر هنوز عضو نشده نمایش داده می‌شوند، آن هم حداکثر به تعداد نمایشی و به صورت چرخشی.",
         reply_markup=promo_admin_kb(enabled),
     )
 

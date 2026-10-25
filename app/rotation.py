@@ -88,6 +88,30 @@ async def pick_proxy(session, exclude_id=None):
     return proxies[0]
 
 
+async def pick_promo_channels(session, candidates, n):
+    """Pick at most N sponsor channels to show now, rotating the whole pool.
+
+    Selection is least-shown-first (deterministic tie-break by id), then the
+    chosen channels' shown_count is incremented and committed. Over many
+    deliveries this cycles through ALL optional channels evenly instead of
+    always showing the same few, so users don't get bored.
+    """
+    if not candidates:
+        return []
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return []
+    ordered = sorted(candidates, key=lambda c: (c.shown_count or 0, c.id))
+    chosen = ordered[:n]
+    for c in chosen:
+        c.shown_count = (c.shown_count or 0) + 1
+    await session.commit()
+    return chosen
+
+
 async def mark_served(session, proxy, user=None):
     proxy.served_count = (proxy.served_count or 0) + 1
     if user is not None:

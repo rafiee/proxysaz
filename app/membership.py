@@ -29,6 +29,28 @@ async def optional_channels(session):
     return list(res.scalars().all())
 
 
+async def unjoined_optional_channels(bot, session, user_id):
+    """Optional (sponsor) channels the user has NOT joined yet.
+
+    Only channels still worth suggesting are returned. A channel the bot
+    cannot verify (not admin / private) is INCLUDED (we can't confirm the
+    user is in it, so the sponsor still deserves exposure). If the user is
+    already a confirmed member of every optional channel, this returns [] —
+    the caller can then skip the promo entirely (nothing left to join).
+    """
+    result = []
+    for ch in await optional_channels(session):
+        try:
+            m = await bot.get_chat_member(ch.chat_id, user_id)
+            status = getattr(m, "status", None)
+            if status in _MEMBER_OK:
+                continue  # already a member -> no need to suggest
+        except TelegramError:
+            pass  # cannot verify -> keep suggesting
+        result.append(ch)
+    return result
+
+
 async def missing_channels(bot, session, user_id):
     """Return the list of required channels the user has NOT joined.
 

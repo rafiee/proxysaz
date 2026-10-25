@@ -11,6 +11,7 @@ Accepted inputs (admin just pastes one):
 Output: canonical https://t.me/... link + parsed parts.
 """
 from urllib.parse import urlsplit, parse_qs, urlencode
+import asyncio
 
 
 class ProxyParseError(ValueError):
@@ -104,3 +105,32 @@ def parse_proxy_link(raw: str) -> dict:
         }
 
     raise ProxyParseError("unrecognized proxy format")
+
+
+async def test_proxy(server: str, port: int, timeout: float = 6.0) -> dict:
+    """Lightweight reachability check: open a TCP connection to server:port.
+
+    This does NOT fully speak the MTProto/SOCKS handshake, but a successful
+    TCP connect is a strong, fast signal that the proxy endpoint is alive and
+    the port is open. Returns a dict: {ok: bool, latency_ms: int|None, error: str|None}.
+    """
+    if not server or not port:
+        return {"ok": False, "latency_ms": None, "error": "missing server/port"}
+    loop = asyncio.get_event_loop()
+    start = loop.time()
+    writer = None
+    try:
+        fut = asyncio.open_connection(host=server, port=int(port))
+        reader, writer = await asyncio.wait_for(fut, timeout=timeout)
+        latency_ms = int((loop.time() - start) * 1000)
+        return {"ok": True, "latency_ms": latency_ms, "error": None}
+    except asyncio.TimeoutError:
+        return {"ok": False, "latency_ms": None, "error": f"timeout after {timeout:.0f}s"}
+    except Exception as e:
+        return {"ok": False, "latency_ms": None, "error": str(e) or e.__class__.__name__}
+    finally:
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception:
+                pass

@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     last_rotated_at    TIMESTAMP,
     force_join_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     promo_enabled      BOOLEAN NOT NULL DEFAULT FALSE,
-    promo_message      TEXT
+    promo_message      TEXT,
+    promo_count        INTEGER NOT NULL DEFAULT 3
 );
 
 CREATE TABLE IF NOT EXISTS channels (
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS channels (
     title        VARCHAR(255),
     invite_link  TEXT,
     is_required  BOOLEAN NOT NULL DEFAULT TRUE,
+    shown_count  INTEGER NOT NULL DEFAULT 0,
     created_at   TIMESTAMP DEFAULT NOW()
 );
 

@@ -138,6 +138,7 @@ def notify_prompt_kb(proxy_id: int):
 def broken_report_kb(proxy_id: int):
     """Buttons attached to the admin notice when a user reports a broken proxy."""
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🧪 تست پروکسی", callback_data=f"rpt_test:{proxy_id}")],
         [InlineKeyboardButton("⚪️ غیرفعال کردن این پروکسی", callback_data=f"rpt_off:{proxy_id}")],
     ])
 
@@ -148,5 +149,6 @@ def promo_admin_kb(enabled: bool):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(toggle, callback_data="promo_toggle")],
         [InlineKeyboardButton("✏️ تنظیم متن پیام (HTML)", callback_data="promo_set")],
+        [InlineKeyboardButton("🔢 تعداد کانال نمایشی (N)", callback_data="promo_count")],
         [InlineKeyboardButton("👁 پیش‌نمایش پیام", callback_data="promo_preview")],
     ])
