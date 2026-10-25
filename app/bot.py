@@ -66,7 +66,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(on_another, pattern=r"^another:"))
     app.add_handler(CallbackQueryHandler(
         admin_callback,
-        pattern=r"^(strat:|rot:|px_|ch_|fj_toggle|notify:|rpt_)",
+        pattern=r"^(strat:|rot:|px_|ch_|fj_toggle|notify:|rpt_|promo_)",
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_dispatch))
     return app

@@ -39,6 +39,10 @@ class BotSettings(Base):
     # Global master switch for the forced-join gate (independent of per-channel
     # is_required). When False, users get proxies without any join check.
     force_join_enabled = Column(Boolean, default=True, nullable=False)
+    # Optional promotional (sponsor) message shown AFTER the proxy is delivered,
+    # stored as Telegram-HTML. Shown together with buttons for OPTIONAL channels.
+    promo_enabled = Column(Boolean, default=False, nullable=False)
+    promo_message = Column(Text, nullable=True)
 
 
 class Channel(Base):
@@ -105,6 +109,8 @@ def async_session() -> AsyncSession:
 # create_all() never ALTERs existing tables, so we add new columns here.
 _MIGRATIONS = [
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS force_join_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS promo_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS promo_message TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS wants_notify BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 

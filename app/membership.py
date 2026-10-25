@@ -21,6 +21,14 @@ async def required_channels(session):
     return list(res.scalars().all())
 
 
+async def optional_channels(session):
+    """Channels marked NOT required — shown as sponsor/promo suggestions."""
+    res = await session.execute(
+        select(Channel).where(Channel.is_required == False)  # noqa: E712
+    )
+    return list(res.scalars().all())
+
+
 async def missing_channels(bot, session, user_id):
     """Return the list of required channels the user has NOT joined.
 

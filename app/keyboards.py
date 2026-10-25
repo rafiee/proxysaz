@@ -47,6 +47,22 @@ def join_channels_kb(channels, invite_fallback=None):
     return InlineKeyboardMarkup(rows)
 
 
+def promo_channels_kb(channels, invite_fallback=None):
+    """URL-only buttons for OPTIONAL sponsor channels (no recheck gate)."""
+    rows = []
+    for ch in channels:
+        url = ch.invite_link
+        if not url:
+            cid = ch.chat_id
+            if cid.startswith("@"):
+                url = f"https://t.me/{cid[1:]}"
+            elif invite_fallback:
+                url = invite_fallback
+        if url:
+            rows.append([InlineKeyboardButton(f"➕ {ch.title or ch.chat_id}", url=url)])
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
 # ─── Admin side ───
 
 
@@ -55,8 +71,8 @@ def admin_main_menu():
         [
             [KeyboardButton("➕ افزودن پروکسی"), KeyboardButton("📋 لیست پروکسی‌ها")],
             [KeyboardButton("⚙️ روش انتخاب"), KeyboardButton("🔁 چرخش (Rotation)")],
-            [KeyboardButton("📢 کانال‌های اجباری"), KeyboardButton("📊 آمار")],
-            [KeyboardButton("🚀 دریافت پروکسی")],
+            [KeyboardButton("📢 کانال‌های اجباری"), KeyboardButton("📝 پیام تبلیغاتی")],
+            [KeyboardButton("📊 آمار"), KeyboardButton("🚀 دریافت پروکسی")],
         ],
         resize_keyboard=True,
     )
@@ -123,4 +139,14 @@ def broken_report_kb(proxy_id: int):
     """Buttons attached to the admin notice when a user reports a broken proxy."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚪️ غیرفعال کردن این پروکسی", callback_data=f"rpt_off:{proxy_id}")],
+    ])
+
+
+def promo_admin_kb(enabled: bool):
+    """Admin controls for the promotional message."""
+    toggle = "🟢 تبلیغ: روشن" if enabled else "⚪️ تبلیغ: خاموش"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(toggle, callback_data="promo_toggle")],
+        [InlineKeyboardButton("✏️ تنظیم متن پیام (HTML)", callback_data="promo_set")],
+        [InlineKeyboardButton("👁 پیش‌نمایش پیام", callback_data="promo_preview")],
     ])

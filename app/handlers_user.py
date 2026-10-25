@@ -6,9 +6,9 @@ from .config import ADMIN_CHAT_IDS
 from .database import async_session, User, Proxy, get_settings
 from .keyboards import (
     user_main_menu, admin_main_menu, connect_button, join_channels_kb,
-    proxy_delivery_kb, broken_report_kb,
+    proxy_delivery_kb, broken_report_kb, promo_channels_kb,
 )
-from .membership import missing_channels
+from .membership import missing_channels, optional_channels
 from .rotation import pick_proxy, mark_served
 
 GET_PROXY_TEXT = "🚀 دریافت پروکسی"
@@ -77,6 +77,25 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
             "پروکسی شما آماده است! روی دکمه زیر بزنید تا متصل شوید ⚡️",
             reply_markup=proxy_delivery_kb(proxy.link, proxy.id),
         )
+        # Optional sponsor promo shown AFTER the proxy.
+        st = await get_settings(s)
+        if getattr(st, "promo_enabled", False):
+            opt = await optional_channels(s)
+            promo_text = (st.promo_message or "").strip()
+            if promo_text or opt:
+                body = promo_text or "برای حمایت از اسپانسرها، می‌توانید در کانال‌های زیر عضو شوید 🙏"
+                try:
+                    await update.effective_message.reply_text(
+                        body,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True,
+                        reply_markup=promo_channels_kb(opt),
+                    )
+                except Exception:
+                    # Fall back to plain text if the admin's HTML is malformed.
+                    await update.effective_message.reply_text(
+                        body, reply_markup=promo_channels_kb(opt)
+                    )
 
 
 async def on_get_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):

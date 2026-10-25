@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     rotation_mode      VARCHAR(16) DEFAULT 'manual',
     rotation_hours     INTEGER DEFAULT 0,
     last_rotated_at    TIMESTAMP,
-    force_join_enabled BOOLEAN NOT NULL DEFAULT TRUE
+    force_join_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    promo_enabled      BOOLEAN NOT NULL DEFAULT FALSE,
+    promo_message      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS channels (

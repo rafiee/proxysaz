@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User
-from .keyboards import selection_strategy_kb, rotation_kb, channels_kb
+from .keyboards import selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb
 
 
 def _is_admin(uid):
@@ -163,6 +163,43 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await q.message.delete()
                 except Exception:
                     pass
+        return
+
+    # ── promotional message controls ──
+    if data == "promo_toggle":
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.promo_enabled = not getattr(st, "promo_enabled", False)
+            await s.commit()
+            enabled = st.promo_enabled
+        await q.answer("تبلیغ " + ("روشن شد 🟢" if enabled else "خاموش شد ⚪️"))
+        try:
+            await q.edit_message_reply_markup(reply_markup=promo_admin_kb(enabled))
+        except Exception:
+            pass
+        return
+    if data == "promo_set":
+        context.user_data["await"] = "promo_message"
+        await q.answer()
+        await q.message.reply_text(
+            "متن تبلیغاتی را بفرستید (HTML تلگرام پشتیبانی می‌شود):\n"
+            "مثال: <b>حمایت از ما</b> — در کانال‌های زیر عضو شوید 🙏\n"
+            "تگ‌های مجاز: &lt;b&gt; &lt;i&gt; &lt;u&gt; &lt;a href&gt; &lt;code&gt;",
+            parse_mode="HTML",
+        )
+        return
+    if data == "promo_preview":
+        async with async_session() as s:
+            st = await get_settings(s)
+            msg = (st.promo_message or "").strip()
+        if not msg:
+            await q.answer("هنوز متنی تنظیم نشده.", show_alert=True)
+            return
+        await q.answer()
+        try:
+            await q.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+        except Exception as e:
+            await q.message.reply_text(f"⚠️ HTML نامعتبر است: {e}\nمتن خام:\n{msg}")
         return
 
     # ── channel ops ──

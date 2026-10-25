@@ -8,7 +8,7 @@ from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User
 from .keyboards import (
     selection_strategy_kb, rotation_kb, channels_kb, admin_proxy_row,
-    notify_prompt_kb,
+    notify_prompt_kb, promo_admin_kb,
 )
 from .proxy_utils import parse_proxy_link, ProxyParseError
 
@@ -18,6 +18,7 @@ BTN_LIST = "📋 لیست پروکسی‌ها"
 BTN_STRAT = "⚙️ روش انتخاب"
 BTN_ROT = "🔁 چرخش (Rotation)"
 BTN_CH = "📢 کانال‌های اجباری"
+BTN_PROMO = "📝 پیام تبلیغاتی"
 BTN_STATS = "📊 آمار"
 
 
@@ -56,6 +57,9 @@ async def admin_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return True
     if text == BTN_CH:
         await _list_channels(update)
+        return True
+    if text == BTN_PROMO:
+        await _promo_panel(update)
         return True
     if text == BTN_STATS:
         await _stats(update)
@@ -140,6 +144,18 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"کانال «{title}» اضافه شد ✅")
         return True
 
+    if action == "promo_message":
+        context.user_data.pop("await", None)
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.promo_message = update.message.text_html or text
+            await s.commit()
+        await update.message.reply_text(
+            "متن تبلیغاتی ذخیره شد ✅\nبرای فعال شدن نمایش، از دکمه تبلیغ: روشن استفاده کنید.",
+        )
+        await _promo_panel(update)
+        return True
+
     return False
 
 
@@ -171,6 +187,22 @@ async def _list_channels(update: Update):
         "برای افزودن، شناسه کانال به صورت `@username | عنوان` بفرستید.",
         reply_markup=channels_kb(channels, force_enabled=getattr(st, "force_join_enabled", True)),
         parse_mode="Markdown",
+    )
+
+
+async def _promo_panel(update: Update):
+    async with async_session() as s:
+        st = await get_settings(s)
+        enabled = getattr(st, "promo_enabled", False)
+        has_msg = bool((st.promo_message or "").strip())
+    status = "روشن 🟢" if enabled else "خاموش ⚪️"
+    msg_state = "تنظیم شده" if has_msg else "خالی"
+    await update.message.reply_text(
+        "📝 پیام تبلیغاتی (پس از تحویل پروکسی نمایش داده می‌شود)\n"
+        f"وضعیت: {status} | متن: {msg_state}\n\n"
+        "کانال‌های اختیاری (اسپانسر) همان کانال‌هایی هستند که در بخش کانال‌ها "
+        "روی حالت «اختیاری» تنظیم شده‌اند و زیر پیام تبلیغاتی به کاربر پیشنهاد می‌شوند.",
+        reply_markup=promo_admin_kb(enabled),
     )
 
 
