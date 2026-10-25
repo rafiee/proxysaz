@@ -10,7 +10,8 @@ from telegram.ext import (
 from .config import BOT_TOKEN
 from .database import init_db
 from .handlers_user import (
-    cmd_start, on_get_proxy, on_recheck_join, is_admin, GET_PROXY_TEXT,
+    cmd_start, on_get_proxy, on_recheck_join, on_report, on_another,
+    is_admin, GET_PROXY_TEXT,
 )
 from .handlers_admin import admin_menu_router, admin_await_router
 from .handlers_admin_cb import admin_callback
@@ -61,9 +62,11 @@ def build_app() -> Application:
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_recheck_join, pattern=r"^recheck_join$"))
+    app.add_handler(CallbackQueryHandler(on_report, pattern=r"^report:"))
+    app.add_handler(CallbackQueryHandler(on_another, pattern=r"^another:"))
     app.add_handler(CallbackQueryHandler(
         admin_callback,
-        pattern=r"^(strat:|rot:|px_|ch_)",
+        pattern=r"^(strat:|rot:|px_|ch_|fj_toggle|notify:|rpt_)",
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_dispatch))
     return app

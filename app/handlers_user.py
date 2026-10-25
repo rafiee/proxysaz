@@ -3,9 +3,10 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from .config import ADMIN_CHAT_IDS
-from .database import async_session, User
+from .database import async_session, User, Proxy, get_settings
 from .keyboards import (
     user_main_menu, admin_main_menu, connect_button, join_channels_kb,
+    proxy_delivery_kb, broken_report_kb,
 )
 from .membership import missing_channels
 from .rotation import pick_proxy, mark_served
@@ -47,8 +48,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def _serve_proxy(update, context, chat_id):
-    """Core: check join gate, pick a proxy, send the Connect button."""
+async def _serve_proxy(update, context, chat_id, exclude_id=None):
+    """Core: check join gate, pick a proxy, send the Connect + action buttons.
+
+    exclude_id: if set, try to hand out a DIFFERENT proxy than this one
+    (used by 'get another' / after a broken report). Falls back to whatever
+    the strategy picks if no alternative exists.
+    """
     async with async_session() as s:
         user = await _ensure_user(s, update.effective_user)
         missing = await missing_channels(context.bot, s, chat_id)
@@ -59,6 +65,8 @@ async def _serve_proxy(update, context, chat_id):
             )
             return
         proxy = await pick_proxy(s)
+        if proxy is not None and exclude_id is not None and proxy.id == exclude_id:
+            proxy = await pick_proxy(s, exclude_id=exclude_id)
         if proxy is None:
             await update.effective_message.reply_text(
                 "فعلاً پروکسی فعالی موجود نیست. لطفاً بعداً تلاش کنید."
@@ -67,7 +75,7 @@ async def _serve_proxy(update, context, chat_id):
         await mark_served(s, proxy, user)
         await update.effective_message.reply_text(
             "پروکسی شما آماده است! روی دکمه زیر بزنید تا متصل شوید ⚡️",
-            reply_markup=connect_button(proxy.link),
+            reply_markup=proxy_delivery_kb(proxy.link, proxy.id),
         )
 
 
@@ -77,11 +85,71 @@ async def on_get_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_recheck_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
     async with async_session() as s:
         missing = await missing_channels(context.bot, s, q.from_user.id)
     if missing:
-        await q.answer("هنوز در همه کانال‌ها عضو نیستید.", show_alert=True)
+        # Single answer with an alert, then refresh the buttons so ONLY the
+        # channels the user still hasn't joined remain.
+        await q.answer(
+            "هنوز در همه کانال‌ها عضو نیستید. کانال‌های باقی‌مانده در پایین نشان داده شد.",
+            show_alert=True,
+        )
+        try:
+            await q.edit_message_reply_markup(reply_markup=join_channels_kb(missing))
+        except Exception:
+            pass
         return
-    await q.message.reply_text("عضویت تایید شد ✅ دوباره دکمه دریافت پروکسی را بزنید.")
+    await q.answer("عضویت تایید شد ✅")
+    try:
+        await q.edit_message_text("عضویت شما تایید شد ✅")
+    except Exception:
+        pass
     await _serve_proxy(update, context, q.from_user.id)
+
+
+async def on_another(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User asked for a different proxy than the one just delivered."""
+    q = update.callback_query
+    await q.answer()
+    try:
+        exclude_id = int((q.data or "").split(":", 1)[1])
+    except (IndexError, ValueError):
+        exclude_id = None
+    await _serve_proxy(update, context, q.from_user.id, exclude_id=exclude_id)
+
+
+async def on_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User reports a broken proxy -> flag for notify + alert all admins."""
+    q = update.callback_query
+    try:
+        pid = int((q.data or "").split(":", 1)[1])
+    except (IndexError, ValueError):
+        pid = None
+    async with async_session() as s:
+        user = await _ensure_user(s, q.from_user)
+        user.wants_notify = True
+        await s.commit()
+        pname = None
+        if pid is not None:
+            p = await s.get(Proxy, pid)
+            pname = p.name if p else None
+    await q.answer(
+        "گزارش شما ثبت شد ✅ به محض آماده‌شدن پروکسی جدید به شما اطلاع داده می‌شود.",
+        show_alert=True,
+    )
+    # Try to immediately offer a different proxy.
+    await _serve_proxy(update, context, q.from_user.id, exclude_id=pid)
+    # Notify every admin.
+    uname = f"@{q.from_user.username}" if q.from_user.username else str(q.from_user.id)
+    text = (
+        "⚠️ گزارش پروکسی خراب\n"
+        f"پروکسی: «{pname or '?'}» (id={pid})\n"
+        f"کاربر: {uname} (id={q.from_user.id})"
+    )
+    for admin_id in ADMIN_CHAT_IDS:
+        try:
+            await context.bot.send_message(
+                admin_id, text, reply_markup=broken_report_kb(pid or 0)
+            )
+        except Exception:
+            pass

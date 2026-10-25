@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     pinned_proxy_id    INTEGER,
     rotation_mode      VARCHAR(16) DEFAULT 'manual',
     rotation_hours     INTEGER DEFAULT 0,
-    last_rotated_at    TIMESTAMP
+    last_rotated_at    TIMESTAMP,
+    force_join_enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS channels (
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin      BOOLEAN DEFAULT FALSE,
     served_count  INTEGER NOT NULL DEFAULT 0,
     last_proxy_id INTEGER,
+    wants_notify  BOOLEAN NOT NULL DEFAULT FALSE,
     first_seen    TIMESTAMP DEFAULT NOW()
 );
 

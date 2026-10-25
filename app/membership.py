@@ -9,7 +9,7 @@ everyone — this keeps the bot usable until the admin promotes it.
 from telegram.error import TelegramError
 from sqlalchemy import select
 
-from .database import Channel
+from .database import Channel, get_settings
 
 _MEMBER_OK = {"member", "administrator", "creator", "owner"}
 
@@ -25,7 +25,11 @@ async def missing_channels(bot, session, user_id):
     """Return the list of required channels the user has NOT joined.
 
     Channels the bot cannot verify (not admin) are skipped so they don't block.
+    If the global force-join switch is OFF, returns [] (no gate).
     """
+    st = await get_settings(session)
+    if not getattr(st, "force_join_enabled", True):
+        return []
     missing = []
     for ch in await required_channels(session):
         try:

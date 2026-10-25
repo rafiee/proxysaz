@@ -8,6 +8,7 @@ from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User
 from .keyboards import (
     selection_strategy_kb, rotation_kb, channels_kb, admin_proxy_row,
+    notify_prompt_kb,
 )
 from .proxy_utils import parse_proxy_link, ProxyParseError
 
@@ -101,7 +102,11 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             s.add(p)
             await s.commit()
-        await update.message.reply_text(f"پروکسی «{text}» ذخیره و فعال شد ✅")
+            new_id = p.id
+        await update.message.reply_text(
+            f"پروکسی «{text}» ذخیره و فعال شد ✅\nآیا به کاربران اطلاع داده شود؟",
+            reply_markup=notify_prompt_kb(new_id),
+        )
         return True
 
     if action == "rot_hours":
@@ -120,7 +125,15 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data.pop("await", None)
         parts = text.split("|")
         chat_id = parts[0].strip()
-        title = parts[1].strip() if len(parts) > 1 else chat_id
+        title = parts[1].strip() if len(parts) > 1 else None
+        # If the admin didn't give a title, try to fetch the real channel title
+        # (which can include emojis) via the bot.
+        if not title:
+            try:
+                chat = await update.get_bot().get_chat(chat_id)
+                title = chat.title or chat_id
+            except Exception:
+                title = chat_id
         async with async_session() as s:
             s.add(Channel(chat_id=chat_id, title=title, is_required=True))
             await s.commit()
@@ -152,10 +165,11 @@ async def _list_channels(update: Update):
     async with async_session() as s:
         res = await s.execute(select(Channel).order_by(Channel.id))
         channels = list(res.scalars().all())
+        st = await get_settings(s)
     await update.message.reply_text(
         "کانال‌های اجباری (روی هرکدام بزنید تا اجباری/اختیاری شود):\n"
         "برای افزودن، شناسه کانال به صورت `@username | عنوان` بفرستید.",
-        reply_markup=channels_kb(channels),
+        reply_markup=channels_kb(channels, force_enabled=getattr(st, "force_join_enabled", True)),
         parse_mode="Markdown",
     )
 

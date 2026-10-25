@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from .config import ADMIN_CHAT_IDS
-from .database import async_session, get_settings, Proxy, Channel
+from .database import async_session, get_settings, Proxy, Channel, User
 from .keyboards import selection_strategy_kb, rotation_kb, channels_kb
 
 
@@ -19,6 +19,66 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("دسترسی ندارید.", show_alert=True)
         return
     data = q.data or ""
+
+    # ── broken-proxy report: admin deactivates the proxy ──
+    if data.startswith("rpt_off:"):
+        pid = int(data.split(":", 1)[1])
+        async with async_session() as s:
+            p = await s.get(Proxy, pid)
+            if p is None:
+                await q.answer("پروکسی یافت نشد (شاید حذف شده).", show_alert=True)
+                return
+            p.is_active = False
+            await s.commit()
+        await q.answer("پروکسی غیرفعال شد ⚪️", show_alert=True)
+        return
+
+    # ── notify users about a newly added / replaced proxy ──
+    if data.startswith("notify:"):
+        _, scope, pid = data.split(":", 2)
+        pid = int(pid)
+        if scope == "no":
+            await q.answer("باشه، اطلاع‌رسانی انجام نشد.")
+            try:
+                await q.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+            return
+        from sqlalchemy import select
+        async with async_session() as s:
+            if scope == "reporters":
+                res = await s.execute(select(User).where(User.wants_notify == True))  # noqa: E712
+            else:  # all
+                res = await s.execute(select(User))
+            targets = list(res.scalars().all())
+        await q.answer(f"در حال ارسال به {len(targets)} کاربر...")
+        sent = 0
+        for u in targets:
+            try:
+                await context.bot.send_message(
+                    u.chat_id,
+                    "🔔 پروکسی جدید آماده است! برای دریافت، دکمه «دریافت پروکسی» را بزنید.",
+                )
+                sent += 1
+            except Exception:
+                pass
+        # Clear the notify flag for reporters we just told.
+        if scope == "reporters" and targets:
+            async with async_session() as s:
+                for u in targets:
+                    row = await s.get(User, u.chat_id)
+                    if row:
+                        row.wants_notify = False
+                await s.commit()
+        try:
+            await q.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        try:
+            await q.message.reply_text(f"✅ اطلاع‌رسانی به {sent} کاربر انجام شد.")
+        except Exception:
+            pass
+        return
 
     # ── selection strategy ──
     if data.startswith("strat:"):
@@ -106,6 +166,22 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── channel ops ──
+    if data == "fj_toggle":
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.force_join_enabled = not getattr(st, "force_join_enabled", True)
+            await s.commit()
+            from sqlalchemy import select
+            res = await s.execute(select(Channel).order_by(Channel.id))
+            channels = list(res.scalars().all())
+            enabled = st.force_join_enabled
+        await q.answer("اجبار عضویت " + ("روشن شد 🔔" if enabled else "خاموش شد 🔕"))
+        try:
+            await q.edit_message_reply_markup(reply_markup=channels_kb(channels, force_enabled=enabled))
+        except Exception:
+            pass
+        return
+
     if data.startswith("ch_"):
         if data == "ch_add":
             context.user_data["await"] = "channel_add"
@@ -134,8 +210,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from sqlalchemy import select
             res = await s.execute(select(Channel).order_by(Channel.id))
             channels = list(res.scalars().all())
+            st = await get_settings(s)
+            enabled = getattr(st, "force_join_enabled", True)
         try:
-            await q.edit_message_reply_markup(reply_markup=channels_kb(channels))
+            await q.edit_message_reply_markup(reply_markup=channels_kb(channels, force_enabled=enabled))
         except Exception:
             pass
         return

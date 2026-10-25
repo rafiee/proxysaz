@@ -53,12 +53,21 @@ async def maybe_auto_rotate(session):
     return st
 
 
-async def pick_proxy(session):
-    """Choose one active proxy per the configured strategy. Returns Proxy or None."""
+async def pick_proxy(session, exclude_id=None):
+    """Choose one active proxy per the configured strategy. Returns Proxy or None.
+
+    exclude_id: if given and more than one active proxy exists, avoid returning
+    that proxy (used for 'get another' / broken-report retries).
+    """
     st = await maybe_auto_rotate(session)
     proxies = await _active_proxies(session)
     if not proxies:
         return None
+
+    if exclude_id is not None:
+        others = [p for p in proxies if p.id != exclude_id]
+        if others:
+            proxies = others
 
     strat = st.selection_strategy or "newest"
 

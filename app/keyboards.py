@@ -21,6 +21,15 @@ def connect_button(link: str):
     )
 
 
+def proxy_delivery_kb(link: str, proxy_id: int):
+    """Connect button + 'report broken' + 'get another' for a delivered proxy."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚡️ اتصال به پروکسی", url=link)],
+        [InlineKeyboardButton("⚠️ این پروکسی کار نمی‌کند", callback_data=f"report:{proxy_id}")],
+        [InlineKeyboardButton("🔄 دریافت پروکسی دیگر", callback_data=f"another:{proxy_id}")],
+    ])
+
+
 def join_channels_kb(channels, invite_fallback=None):
     """Buttons to join each required channel + a recheck button."""
     rows = []
@@ -87,8 +96,10 @@ def rotation_kb(mode, hours):
     return InlineKeyboardMarkup(rows)
 
 
-def channels_kb(channels):
+def channels_kb(channels, force_enabled=True):
     rows = []
+    fj = "🔔 اجبار عضویت: روشن" if force_enabled else "🔕 اجبار عضویت: خاموش"
+    rows.append([InlineKeyboardButton(fj, callback_data="fj_toggle")])
     for ch in channels:
         flag = "🟢 اجباری" if ch.is_required else "⚪️ اختیاری"
         rows.append([
@@ -97,3 +108,19 @@ def channels_kb(channels):
         ])
     rows.append([InlineKeyboardButton("➕ افزودن کانال", callback_data="ch_add")])
     return InlineKeyboardMarkup(rows)
+
+
+def notify_prompt_kb(proxy_id: int):
+    """Ask the admin whether to notify users about a newly added proxy."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📣 اطلاع به گزارش‌دهندگان", callback_data=f"notify:reporters:{proxy_id}")],
+        [InlineKeyboardButton("📢 اطلاع به همه کاربران", callback_data=f"notify:all:{proxy_id}")],
+        [InlineKeyboardButton("خیر، لازم نیست", callback_data="notify:no:0")],
+    ])
+
+
+def broken_report_kb(proxy_id: int):
+    """Buttons attached to the admin notice when a user reports a broken proxy."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚪️ غیرفعال کردن این پروکسی", callback_data=f"rpt_off:{proxy_id}")],
+    ])

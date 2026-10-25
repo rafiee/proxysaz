@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text,
-    select,
+    select, text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
@@ -36,6 +36,9 @@ class BotSettings(Base):
     rotation_mode = Column(String(16), default="manual")       # manual|auto
     rotation_hours = Column(Integer, default=0)
     last_rotated_at = Column(DateTime, nullable=True)
+    # Global master switch for the forced-join gate (independent of per-channel
+    # is_required). When False, users get proxies without any join check.
+    force_join_enabled = Column(Boolean, default=True, nullable=False)
 
 
 class Channel(Base):
@@ -55,6 +58,9 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     served_count = Column(Integer, default=0, nullable=False)
     last_proxy_id = Column(Integer, nullable=True)
+    # Set True when the user reports a broken proxy / wants to be told when a
+    # fresh proxy is available; cleared after they are notified.
+    wants_notify = Column(Boolean, default=False, nullable=False)
     first_seen = Column(DateTime, default=datetime.utcnow)
 
 
@@ -95,11 +101,21 @@ def async_session() -> AsyncSession:
     return _get_sessionmaker()()
 
 
+# Lightweight additive migrations for columns added after first deploy.
+# create_all() never ALTERs existing tables, so we add new columns here.
+_MIGRATIONS = [
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS force_join_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS wants_notify BOOLEAN NOT NULL DEFAULT FALSE",
+]
+
+
 async def init_db():
     """Create tables if missing and ensure the singleton settings row exists."""
     sm = _get_sessionmaker()
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for stmt in _MIGRATIONS:
+            await conn.execute(text(stmt))
     async with sm() as s:
         row = await s.get(BotSettings, 1)
         if row is None:
