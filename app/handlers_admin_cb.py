@@ -156,6 +156,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 st = await get_settings(s)
                 if st.pinned_proxy_id == pid:
                     st.pinned_proxy_id = None
+                # Drop the unique-user rows for this proxy too.
+                from sqlalchemy import delete
+                from .database import ProxyUser
+                await s.execute(delete(ProxyUser).where(ProxyUser.proxy_id == pid))
                 await s.delete(p)
                 await s.commit()
                 await q.answer("حذف شد 🗑")

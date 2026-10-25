@@ -47,5 +47,15 @@ CREATE TABLE IF NOT EXISTS users (
     first_seen    TIMESTAMP DEFAULT NOW()
 );
 
+-- One row per (proxy, user) pair: used to count UNIQUE users per proxy.
+CREATE TABLE IF NOT EXISTS proxy_users (
+    id         SERIAL PRIMARY KEY,
+    proxy_id   INTEGER NOT NULL,
+    chat_id    BIGINT NOT NULL,
+    first_used TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT uq_proxy_user UNIQUE (proxy_id, chat_id)
+);
+CREATE INDEX IF NOT EXISTS ix_proxy_users_proxy_id ON proxy_users (proxy_id);
+
 -- Singleton settings row
 INSERT INTO bot_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;

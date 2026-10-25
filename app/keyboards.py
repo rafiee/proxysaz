@@ -81,13 +81,16 @@ def admin_main_menu():
 def admin_proxy_row(p):
     status = "🟢" if p.is_active else "⚪️"
     toggle = "غیرفعال" if p.is_active else "فعال"
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(f"{toggle}", callback_data=f"px_toggle:{p.id}"),
-            InlineKeyboardButton("📌 پین", callback_data=f"px_pin:{p.id}"),
-            InlineKeyboardButton("🗑 حذف", callback_data=f"px_del:{p.id}"),
-        ]
+    rows = []
+    # Tap to open this proxy in Telegram (connect / check), just like a user.
+    if getattr(p, "link", None):
+        rows.append([InlineKeyboardButton("⚡️ تست/اتصال به پروکسی", url=p.link)])
+    rows.append([
+        InlineKeyboardButton(f"{toggle}", callback_data=f"px_toggle:{p.id}"),
+        InlineKeyboardButton("📌 پین", callback_data=f"px_pin:{p.id}"),
+        InlineKeyboardButton("🗑 حذف", callback_data=f"px_del:{p.id}"),
     ])
+    return InlineKeyboardMarkup(rows)
 
 
 def selection_strategy_kb(current):

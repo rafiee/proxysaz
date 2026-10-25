@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text,
-    select, text,
+    UniqueConstraint, select, text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
@@ -72,6 +72,21 @@ class User(Base):
     # fresh proxy is available; cleared after they are notified.
     wants_notify = Column(Boolean, default=False, nullable=False)
     first_seen = Column(DateTime, default=datetime.utcnow)
+
+
+class ProxyUser(Base):
+    """One row per (proxy, user) pair — lets us count UNIQUE users per proxy.
+
+    Inserted the first time a given user is served a given proxy; the
+    UniqueConstraint keeps it to one row per pair no matter how many times
+    they request that same proxy again.
+    """
+    __tablename__ = "proxy_users"
+    id = Column(Integer, primary_key=True)
+    proxy_id = Column(Integer, nullable=False, index=True)
+    chat_id = Column(BigInteger, nullable=False)
+    first_used = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("proxy_id", "chat_id", name="uq_proxy_user"),)
 
 
 # ─── Lazy engine/session (empty DATABASE_URL must not crash import) ───

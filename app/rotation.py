@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
-from .database import Proxy, get_settings
+from .database import Proxy, get_settings, ProxyUser
 
 
 async def _active_proxies(session):
@@ -117,4 +117,14 @@ async def mark_served(session, proxy, user=None):
     if user is not None:
         user.served_count = (user.served_count or 0) + 1
         user.last_proxy_id = proxy.id
+        # Record a unique (proxy, user) pair the first time only, so we can
+        # count how many DISTINCT users have used/clicked this proxy.
+        existing = await session.execute(
+            select(ProxyUser.id).where(
+                ProxyUser.proxy_id == proxy.id,
+                ProxyUser.chat_id == user.chat_id,
+            )
+        )
+        if existing.scalar() is None:
+            session.add(ProxyUser(proxy_id=proxy.id, chat_id=user.chat_id))
     await session.commit()

@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from .config import ADMIN_CHAT_IDS
-from .database import async_session, get_settings, Proxy, Channel, User
+from .database import async_session, get_settings, Proxy, Channel, User, ProxyUser
 from .keyboards import (
     selection_strategy_kb, rotation_kb, channels_kb, admin_proxy_row,
     notify_prompt_kb, promo_admin_kb,
@@ -182,10 +182,15 @@ async def _list_proxies(update: Update):
         return
     for p in proxies:
         pin = " 📌" if st.pinned_proxy_id == p.id else ""
+        async with async_session() as s2:
+            uniq_users = (await s2.execute(
+                select(func.count(func.distinct(ProxyUser.chat_id)))
+                .where(ProxyUser.proxy_id == p.id)
+            )).scalar() or 0
         txt = (
             f"«{p.name}»{pin}\n"
             f"نوع: {p.proxy_type} | سرور: {p.server}:{p.port}\n"
-            f"دفعات ارائه: {p.served_count}"
+            f"دفعات ارائه: {p.served_count} | کاربران یکتا: {uniq_users}"
         )
         await update.message.reply_text(txt, reply_markup=admin_proxy_row(p))
 
