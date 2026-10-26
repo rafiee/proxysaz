@@ -172,27 +172,37 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return False
 
 
+async def build_proxy_card(session, p, st):
+    """Build the (text, keyboard) card for one proxy, reflecting its CURRENT
+    enabled/disabled + pinned state. Shared by the list view and the inline
+    callbacks so a toggle/pin instantly re-renders to the right state."""
+    uniq_users = (await session.execute(
+        select(func.count(func.distinct(ProxyUser.chat_id)))
+        .where(ProxyUser.proxy_id == p.id)
+    )).scalar() or 0
+    is_pinned = (st.pinned_proxy_id == p.id)
+    pin = " 📌" if is_pinned else ""
+    state = "🟢 فعال" if p.is_active else "⚪️ غیرفعال"
+    txt = (
+        f"«{p.name}»{pin}\n"
+        f"وضعیت: {state}{'  |  📌 پین‌شده' if is_pinned else ''}\n"
+        f"نوع: {p.proxy_type} | سرور: {p.server}:{p.port}\n"
+        f"دفعات ارائه: {p.served_count} | کاربران یکتا: {uniq_users}"
+    )
+    return txt, admin_proxy_row(p, is_pinned=is_pinned)
+
+
 async def _list_proxies(update: Update):
     async with async_session() as s:
         res = await s.execute(select(Proxy).order_by(Proxy.id))
         proxies = list(res.scalars().all())
         st = await get_settings(s)
-    if not proxies:
-        await update.message.reply_text("هیچ پروکسی‌ای ثبت نشده است.")
-        return
-    for p in proxies:
-        pin = " 📌" if st.pinned_proxy_id == p.id else ""
-        async with async_session() as s2:
-            uniq_users = (await s2.execute(
-                select(func.count(func.distinct(ProxyUser.chat_id)))
-                .where(ProxyUser.proxy_id == p.id)
-            )).scalar() or 0
-        txt = (
-            f"«{p.name}»{pin}\n"
-            f"نوع: {p.proxy_type} | سرور: {p.server}:{p.port}\n"
-            f"دفعات ارائه: {p.served_count} | کاربران یکتا: {uniq_users}"
-        )
-        await update.message.reply_text(txt, reply_markup=admin_proxy_row(p))
+        if not proxies:
+            await update.message.reply_text("هیچ پروکسی‌ای ثبت نشده است.")
+            return
+        for p in proxies:
+            txt, markup = await build_proxy_card(s, p, st)
+            await update.message.reply_text(txt, reply_markup=markup)
 
 
 async def _list_channels(update: Update):

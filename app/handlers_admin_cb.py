@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User
-from .keyboards import selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb
+from .keyboards import selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb, admin_proxy_row
 
 
 def _is_admin(uid):
@@ -146,12 +146,26 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if op == "px_toggle":
                 p.is_active = not p.is_active
                 await s.commit()
-                await q.answer("وضعیت تغییر کرد ✅")
+                await q.answer("فعال شد 🟢" if p.is_active else "غیرفعال شد ⚪️")
+                st = await get_settings(s)
+                from .handlers_admin import build_proxy_card
+                txt, markup = await build_proxy_card(s, p, st)
+                try:
+                    await q.edit_message_text(txt, reply_markup=markup)
+                except Exception:
+                    pass
             elif op == "px_pin":
                 st = await get_settings(s)
                 st.pinned_proxy_id = pid
                 await s.commit()
                 await q.answer("این پروکسی پین شد 📌", show_alert=True)
+                # Refresh THIS message so it clearly shows it's pinned.
+                from .handlers_admin import build_proxy_card
+                txt, markup = await build_proxy_card(s, p, st)
+                try:
+                    await q.edit_message_text(txt, reply_markup=markup)
+                except Exception:
+                    pass
             elif op == "px_del":
                 st = await get_settings(s)
                 if st.pinned_proxy_id == pid:

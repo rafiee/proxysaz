@@ -44,9 +44,11 @@ async def unjoined_optional_channels(bot, session, user_id):
             m = await bot.get_chat_member(ch.chat_id, user_id)
             status = getattr(m, "status", None)
             if status in _MEMBER_OK:
-                continue  # already a member -> no need to suggest
-        except TelegramError:
-            pass  # cannot verify -> keep suggesting
+                continue  # confirmed member -> never suggest it again
+        except Exception:
+            # Bot can't read membership for this channel (not admin / private).
+            # We cannot confirm the user joined, so keep suggesting it.
+            pass
         result.append(ch)
     return result
 
