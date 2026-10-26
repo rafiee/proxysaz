@@ -182,7 +182,7 @@ async def build_proxy_card(session, p, st):
     )).scalar() or 0
     is_pinned = (st.pinned_proxy_id == p.id)
     pin = " 📌" if is_pinned else ""
-    state = "🟢 فعال" if p.is_active else "⚪️ غیرفعال"
+    state = "🟢 فعال" if p.is_active else "🔴 غیرفعال"
     txt = (
         f"«{p.name}»{pin}\n"
         f"وضعیت: {state}{'  |  📌 پین‌شده' if is_pinned else ''}\n"

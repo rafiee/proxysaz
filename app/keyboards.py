@@ -79,8 +79,9 @@ def admin_main_menu():
 
 
 def admin_proxy_row(p, is_pinned=False):
-    status = "🟢" if p.is_active else "⚪️"
-    toggle = "غیرفعال" if p.is_active else "فعال"
+    # The toggle button shows the CURRENT state (green = active, red = inactive),
+    # NOT the next action. Tapping it flips the state and the button re-renders.
+    toggle = "🟢 فعال" if p.is_active else "🔴 غیرفعال"
     pin_label = "📌 پین‌شده ✅" if is_pinned else "📌 پین"
     rows = []
     # Tap to open this proxy in Telegram (connect / check), just like a user.

@@ -146,7 +146,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if op == "px_toggle":
                 p.is_active = not p.is_active
                 await s.commit()
-                await q.answer("فعال شد 🟢" if p.is_active else "غیرفعال شد ⚪️")
+                await q.answer("فعال شد 🟢" if p.is_active else "غیرفعال شد 🔴")
                 st = await get_settings(s)
                 from .handlers_admin import build_proxy_card
                 txt, markup = await build_proxy_card(s, p, st)

@@ -14,6 +14,24 @@ from .database import Channel, get_settings
 _MEMBER_OK = {"member", "administrator", "creator", "owner"}
 
 
+def _api_chat_id(raw):
+    """Normalize a stored channel id into something get_chat_member accepts.
+
+    Telegram needs either a numeric id (e.g. -100123...) or an @username.
+    Admins sometimes save a bare 'mychannel' without the leading '@', which
+    makes the membership lookup fail and (wrongly) keep showing a channel the
+    user already joined. Prefix '@' for bare usernames so verification works.
+    """
+    s = str(raw).strip()
+    if not s:
+        return s
+    if s.startswith("@") or s.startswith("-") or s.lstrip("-").isdigit():
+        return s
+    if s.startswith("https://t.me/"):
+        s = s.rsplit("/", 1)[-1]
+    return "@" + s.lstrip("@")
+
+
 async def required_channels(session):
     res = await session.execute(
         select(Channel).where(Channel.is_required == True)  # noqa: E712
@@ -41,10 +59,11 @@ async def unjoined_optional_channels(bot, session, user_id):
     result = []
     for ch in await optional_channels(session):
         try:
-            m = await bot.get_chat_member(ch.chat_id, user_id)
+            m = await bot.get_chat_member(_api_chat_id(ch.chat_id), user_id)
             status = getattr(m, "status", None)
             if status in _MEMBER_OK:
                 continue  # confirmed member -> never suggest it again
+            # Explicitly left / kicked -> definitely still worth suggesting.
         except Exception:
             # Bot can't read membership for this channel (not admin / private).
             # We cannot confirm the user joined, so keep suggesting it.
@@ -65,7 +84,7 @@ async def missing_channels(bot, session, user_id):
     missing = []
     for ch in await required_channels(session):
         try:
-            m = await bot.get_chat_member(ch.chat_id, user_id)
+            m = await bot.get_chat_member(_api_chat_id(ch.chat_id), user_id)
             status = getattr(m, "status", None)
             if status not in _MEMBER_OK:
                 missing.append(ch)
