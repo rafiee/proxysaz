@@ -8,9 +8,11 @@ from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User, ProxyUser
 from .keyboards import (
     selection_strategy_kb, rotation_kb, channels_kb, admin_proxy_row,
-    notify_prompt_kb, promo_admin_kb,
+    notify_prompt_kb, promo_admin_kb, broadcast_admin_kb,
 )
 from .proxy_utils import parse_proxy_link, ProxyParseError
+from .stats import gather_stats, render_stats
+from .broadcast import do_broadcast
 
 # Menu button labels
 BTN_ADD = "➕ افزودن پروکسی"
@@ -19,6 +21,7 @@ BTN_STRAT = "⚙️ روش انتخاب"
 BTN_ROT = "🔁 چرخش (Rotation)"
 BTN_CH = "📢 کانال‌های اجباری"
 BTN_PROMO = "📝 پیام تبلیغاتی"
+BTN_BROADCAST = "📣 پیام همگانی"
 BTN_STATS = "📊 آمار"
 
 
@@ -60,6 +63,9 @@ async def admin_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return True
     if text == BTN_PROMO:
         await _promo_panel(update)
+        return True
+    if text == BTN_BROADCAST:
+        await _broadcast_panel(update)
         return True
     if text == BTN_STATS:
         await _stats(update)
@@ -169,6 +175,44 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await _promo_panel(update)
         return True
 
+    if action == "broadcast_manual":
+        context.user_data.pop("await", None)
+        html_text = update.message.text_html or text
+        if not html_text.strip():
+            await update.message.reply_text("متن خالی است. دوباره تلاش کنید.")
+            return True
+        await update.message.reply_text("ارسال پیام همگانی آغاز شد… ⁨⏳⁩")
+        sent, failed = await do_broadcast(update.get_bot(), html_text, mode="manual")
+        await update.message.reply_text(
+            f"✅ پیام همگانی ارسال شد.\nموفق: {sent} | ناموفق (بلاک/خطا): {failed}"
+        )
+        return True
+
+    if action == "broadcast_auto_message":
+        context.user_data.pop("await", None)
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.broadcast_auto_message = update.message.text_html or text
+            await s.commit()
+        await update.message.reply_text(
+            "متن پیام همگانی خودکار ذخیره شد ✅\nبرای ارسال دوره‌ای، گزینه خودکار را روشن کنید."
+        )
+        await _broadcast_panel(update)
+        return True
+
+    if action == "broadcast_hours":
+        context.user_data.pop("await", None)
+        if not text.isdigit() or int(text) <= 0:
+            await update.message.reply_text("عدد ساعت را به صورت صحیح بفرستید (مثلاً 24).")
+            return True
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.broadcast_auto_hours = int(text)
+            await s.commit()
+        await update.message.reply_text(f"بازه ارسال خودکار روی هر {text} ساعت تنظیم شد ✅")
+        await _broadcast_panel(update)
+        return True
+
     return False
 
 
@@ -236,19 +280,39 @@ async def _promo_panel(update: Update):
     )
 
 
+async def _broadcast_panel(update: Update):
+    async with async_session() as s:
+        st = await get_settings(s)
+        auto = getattr(st, "broadcast_auto_enabled", False)
+        hours = int(getattr(st, "broadcast_auto_hours", 24) or 24)
+        has_msg = bool((st.broadcast_auto_message or "").strip())
+        last = st.broadcast_last_sent_at
+    auto_state = "روشن 🟢" if auto else "خاموش ⚪️"
+    msg_state = "تنظیم شده" if has_msg else "خالی"
+    last_txt = last.strftime("%Y-%m-%d %H:%M UTC") if last else "—"
+    await update.message.reply_text(
+        "📣 پیام همگانی (Broadcast)\n\n"
+        "• ارسال دستی: یک متن (با پشتیبانی HTML) را همین الان به همه کاربران بفرستید.\n"
+        "• ارسال خودکار: یک متن ثابت تنظیم کنید تا به صورت دوره‌ای ارسال شود.\n\n"
+        f"وضعیت خودکار: {auto_state} | متن خودکار: {msg_state} | بازه: هر {hours} ساعت\n"
+        f"آخرین ارسال خودکار: {last_txt}",
+        reply_markup=broadcast_admin_kb(auto, hours),
+    )
+
+
 async def _stats(update: Update):
     async with async_session() as s:
-        n_proxies = (await s.execute(select(func.count()).select_from(Proxy))).scalar() or 0
-        n_active = (await s.execute(
-            select(func.count()).select_from(Proxy).where(Proxy.is_active == True)  # noqa: E712
-        )).scalar() or 0
-        n_users = (await s.execute(select(func.count()).select_from(User))).scalar() or 0
-        total_served = (await s.execute(select(func.coalesce(func.sum(Proxy.served_count), 0)))).scalar() or 0
-        n_channels = (await s.execute(select(func.count()).select_from(Channel))).scalar() or 0
-    await update.message.reply_text(
-        "📊 آمار ربات\n"
-        f"پروکسی‌ها: {n_proxies} (فعال: {n_active})\n"
-        f"کاربران: {n_users}\n"
-        f"کل دفعات ارائه پروکسی: {total_served}\n"
-        f"کانال‌ها: {n_channels}"
-    )
+        data = await gather_stats(s)
+    text = render_stats(data)
+    # Telegram caps a message at 4096 chars; split long reports safely.
+    if len(text) <= 4000:
+        await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True)
+        return
+    chunk = ""
+    for line in text.split("\n"):
+        if len(chunk) + len(line) + 1 > 4000:
+            await update.message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
+            chunk = ""
+        chunk += line + "\n"
+    if chunk.strip():
+        await update.message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)

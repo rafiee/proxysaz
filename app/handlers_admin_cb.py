@@ -6,7 +6,11 @@ from telegram.ext import ContextTypes
 
 from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User
-from .keyboards import selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb, admin_proxy_row
+from .keyboards import (
+    selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb, admin_proxy_row,
+    broadcast_admin_kb, broadcast_interval_kb,
+)
+from .broadcast import do_broadcast
 
 
 def _is_admin(uid):
@@ -30,7 +34,56 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             p.is_active = False
             await s.commit()
-        await q.answer("پروکسی غیرفعال شد ⚪️", show_alert=True)
+        await q.answer("پروکسی غیرفعال شد 🔴", show_alert=True)
+        return
+
+    # ── broken-report reply: admin answers the reporting user directly ──
+    if data.startswith("rpt_ok:") or data.startswith("rpt_fix:"):
+        parts = data.split(":")
+        kind = parts[0]
+        pid = int(parts[1]) if len(parts) > 1 and parts[1].lstrip("-").isdigit() else None
+        reporter = int(parts[2]) if len(parts) > 2 and parts[2].lstrip("-").isdigit() else None
+        if not reporter:
+            await q.answer("شناسه کاربر گزارش‌دهنده در دسترس نیست.", show_alert=True)
+            return
+        plink = None
+        async with async_session() as s:
+            if pid is not None:
+                p = await s.get(Proxy, pid)
+                if p:
+                    plink = p.link
+        if kind == "rpt_ok":
+            body = (
+                "✅ پروکسی شما بررسی شد و سالم است.\n"
+                "لطفاً اتصال اینترنت و اپ تلگرام خود را بررسی کنید و دوباره وصل شوید."
+            )
+            markup = None
+            if plink:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                markup = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("⚡️ اتصال دوباره", url=plink)]]
+                )
+            try:
+                await context.bot.send_message(reporter, body, reply_markup=markup)
+                await q.answer("به کاربر اطلاع داده شد: پروکسی سالم است ✅", show_alert=True)
+            except Exception:
+                await q.answer("ارسال به کاربر ناموفق بود (شاید ربات را بلاک کرده).", show_alert=True)
+        else:  # rpt_fix
+            # Re-subscribe the user to the 'new proxy ready' notification.
+            async with async_session() as s:
+                u = await s.get(User, reporter)
+                if u:
+                    u.wants_notify = True
+                    await s.commit()
+            body = (
+                "🛠 گزارش شما بررسی شد. مشکل به‌زودی برطرف می‌شود.\n"
+                "به‌محض آماده‌شدن پروکسی جدید، به شما اطلاع می‌دهیم. ممنون از گزارش شما 🙏"
+            )
+            try:
+                await context.bot.send_message(reporter, body)
+                await q.answer("به کاربر اطلاع داده شد: در حال رفع مشکل 🛠", show_alert=True)
+            except Exception:
+                await q.answer("ارسال به کاربر ناموفق بود (شاید ربات را بلاک کرده).", show_alert=True)
         return
 
     # ── notify users about a newly added / replaced proxy ──
@@ -217,6 +270,81 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with async_session() as s:
             st = await get_settings(s)
             msg = (st.promo_message or "").strip()
+        if not msg:
+            await q.answer("هنوز متنی تنظیم نشده.", show_alert=True)
+            return
+        await q.answer()
+        try:
+            await q.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+        except Exception as e:
+            await q.message.reply_text(f"⚠️ HTML نامعتبر است: {e}\nمتن خام:\n{msg}")
+        return
+
+    # ── broadcast controls (manual + automatic) ──
+    if data == "bc_manual":
+        context.user_data["await"] = "broadcast_manual"
+        await q.answer()
+        await q.message.reply_text(
+            "متن پیام همگانی را بفرستید (HTML تلگرام پشتیبانی می‌شود).\n"
+            "این پیام بلافاصله به همه‌ی کاربران ارسال می‌شود.",
+        )
+        return
+    if data == "bc_auto_toggle":
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.broadcast_auto_enabled = not getattr(st, "broadcast_auto_enabled", False)
+            if st.broadcast_auto_enabled:
+                # Start the clock now so the first auto-send waits a full interval.
+                st.broadcast_last_sent_at = datetime.utcnow()
+            await s.commit()
+            enabled = st.broadcast_auto_enabled
+            hours = int(st.broadcast_auto_hours or 24)
+            has_msg = bool((st.broadcast_auto_message or "").strip())
+        if enabled and not has_msg:
+            await q.answer("روشن شد، اما هنوز متنی تنظیم نشده! ابتدا متن خودکار را تنظیم کنید.", show_alert=True)
+        else:
+            await q.answer("ارسال خودکار " + ("روشن شد 🟢" if enabled else "خاموش شد ⚪️"))
+        try:
+            await q.edit_message_reply_markup(reply_markup=broadcast_admin_kb(enabled, hours))
+        except Exception:
+            pass
+        return
+    if data == "bc_auto_set":
+        context.user_data["await"] = "broadcast_auto_message"
+        await q.answer()
+        await q.message.reply_text(
+            "متن پیام خودکار را بفرستید (HTML تلگرام پشتیبانی می‌شود):",
+        )
+        return
+    if data == "bc_auto_hours":
+        await q.answer()
+        await q.message.reply_text(
+            "بازه ارسال خودکار را انتخاب کنید:",
+            reply_markup=broadcast_interval_kb(),
+        )
+        return
+    if data.startswith("bc_int:"):
+        val = data.split(":", 1)[1]
+        if val == "custom":
+            context.user_data["await"] = "broadcast_hours"
+            await q.answer()
+            await q.message.reply_text("تعداد ساعت بین هر ارسال را بفرستید (مثلاً 36):")
+            return
+        hours = int(val)
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.broadcast_auto_hours = hours
+            await s.commit()
+        await q.answer(f"بازه روی هر {hours} ساعت تنظیم شد ✅", show_alert=True)
+        try:
+            await q.edit_message_reply_markup(reply_markup=broadcast_interval_kb())
+        except Exception:
+            pass
+        return
+    if data == "bc_auto_preview":
+        async with async_session() as s:
+            st = await get_settings(s)
+            msg = (st.broadcast_auto_message or "").strip()
         if not msg:
             await q.answer("هنوز متنی تنظیم نشده.", show_alert=True)
             return

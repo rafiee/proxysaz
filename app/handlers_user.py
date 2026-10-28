@@ -3,13 +3,14 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from .config import ADMIN_CHAT_IDS
-from .database import async_session, User, Proxy, get_settings
+from .database import async_session, User, Proxy, Channel, get_settings
 from .keyboards import (
     user_main_menu, admin_main_menu, connect_button, join_channels_kb,
     proxy_delivery_kb, broken_report_kb, promo_channels_kb,
 )
 from .membership import missing_channels, optional_channels, unjoined_optional_channels
 from .rotation import pick_proxy, mark_served, pick_promo_channels
+from .stats import log_event, bump_channel_stat
 
 GET_PROXY_TEXT = "🚀 دریافت پروکسی"
 
@@ -36,6 +37,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     async with async_session() as s:
         await _ensure_user(s, update.effective_user)
+        await log_event(s, "start", chat_id=chat_id)
     if is_admin(chat_id):
         await update.message.reply_text(
             "پنل مدیریت خوش آمدید 👇",
@@ -57,8 +59,15 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
     """
     async with async_session() as s:
         user = await _ensure_user(s, update.effective_user)
+        await log_event(s, "request_proxy", chat_id=chat_id)
         missing = await missing_channels(context.bot, s, chat_id)
         if missing:
+            await log_event(s, "join_gate_shown", chat_id=chat_id)
+            for ch in missing:
+                await bump_channel_stat(
+                    s, ch.chat_id, "join_prompts", title=ch.title, commit=False
+                )
+            await s.commit()
             await update.effective_message.reply_text(
                 "برای دریافت پروکسی، ابتدا در کانال‌های زیر عضو شوید:",
                 reply_markup=join_channels_kb(missing),
@@ -73,6 +82,7 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
             )
             return
         await mark_served(s, proxy, user)
+        await log_event(s, "proxy_served", chat_id=chat_id, ref=proxy.id)
         await update.effective_message.reply_text(
             "پروکسی شما آماده است! روی دکمه زیر بزنید تا متصل شوید ⚡️",
             reply_markup=proxy_delivery_kb(proxy.link, proxy.id),
@@ -90,6 +100,12 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
                 s, unjoined, getattr(st, "promo_count", 3)
             )
             if opt:
+                await log_event(s, "promo_shown", chat_id=chat_id, commit=False)
+                for ch in opt:
+                    await bump_channel_stat(
+                        s, ch.chat_id, "promo_shows", title=ch.title, commit=False
+                    )
+                await s.commit()
                 promo_text = (st.promo_message or "").strip()
                 body = promo_text or "برای حمایت از اسپانسرها، می‌توانید در کانال‌های زیر عضو شوید 🙏"
                 try:
@@ -113,6 +129,7 @@ async def on_get_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def on_recheck_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     async with async_session() as s:
+        await log_event(s, "recheck_click", chat_id=q.from_user.id)
         missing = await missing_channels(context.bot, s, q.from_user.id)
     if missing:
         # Single answer with an alert, then refresh the buttons so ONLY the
@@ -127,6 +144,8 @@ async def on_recheck_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
     await q.answer("عضویت تایید شد ✅")
+    async with async_session() as s:
+        await log_event(s, "join_passed", chat_id=q.from_user.id)
     try:
         await q.edit_message_text("عضویت شما تایید شد ✅")
     except Exception:
@@ -155,6 +174,7 @@ async def on_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with async_session() as s:
         user = await _ensure_user(s, q.from_user)
         user.wants_notify = True
+        await log_event(s, "report_broken", chat_id=q.from_user.id, ref=pid, commit=False)
         await s.commit()
         pname = None
         plink = None
@@ -179,7 +199,58 @@ async def on_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for admin_id in ADMIN_CHAT_IDS:
         try:
             await context.bot.send_message(
-                admin_id, text, reply_markup=broken_report_kb(pid or 0, plink)
+                admin_id, text, reply_markup=broken_report_kb(pid or 0, plink, reporter_id=q.from_user.id)
             )
         except Exception:
             pass
+
+
+_MEMBER_OK = {"member", "administrator", "creator", "owner"}
+
+
+async def _canonical_channel_key(session, chat):
+    """Pick the ChannelStat key that matches how the admin stored this channel,
+    so verified joins land on the SAME row as join/promo prompts."""
+    from sqlalchemy import select
+    candidates = []
+    if getattr(chat, "username", None):
+        candidates.append("@" + chat.username)
+    candidates.append(str(chat.id))
+    for cand in candidates:
+        row = (await session.execute(
+            select(Channel.chat_id).where(Channel.chat_id == cand)
+        )).scalar_one_or_none()
+        if row:
+            return cand
+    return candidates[0]
+
+
+async def on_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Track verified joins/leaves in channels where the bot is an admin.
+
+    Telegram only delivers these `chat_member` updates for chats the bot
+    administers, which is exactly the hard limit on membership visibility.
+    Counts are stored in channel_stats (keyed by chat_id string) so they
+    survive the channel being removed from the config.
+    """
+    cmu = update.chat_member
+    if cmu is None:
+        return
+    chat = cmu.chat
+    if getattr(chat, "type", None) not in ("channel", "supergroup", "group"):
+        return
+    try:
+        old = cmu.old_chat_member.status
+        new = cmu.new_chat_member.status
+    except AttributeError:
+        return
+    was = old in _MEMBER_OK
+    now = new in _MEMBER_OK
+    if was == now:
+        return
+    async with async_session() as s:
+        key = await _canonical_channel_key(s, chat)
+        if now and not was:
+            await bump_channel_stat(s, key, "joins", title=chat.title)
+        elif was and not now:
+            await bump_channel_stat(s, key, "leaves", title=chat.title)

@@ -46,6 +46,52 @@ class BotSettings(Base):
     # How many OPTIONAL (sponsor) channels to show the user at once, so a large
     # pool of channels is rotated instead of dumping them all (anti-boredom).
     promo_count = Column(Integer, default=3, nullable=False)
+    # ── Automatic broadcast ── a recurring message pushed to every user on a
+    # fixed interval (half-day / daily / every other day, etc). Toggleable.
+    broadcast_auto_enabled = Column(Boolean, default=False, nullable=False)
+    broadcast_auto_message = Column(Text, nullable=True)     # Telegram-HTML
+    broadcast_auto_hours = Column(Integer, default=24, nullable=False)
+    broadcast_last_sent_at = Column(DateTime, nullable=True)
+
+
+class Event(Base):
+    """Append-only activity log. Everything interesting the bot sees is written
+    here as one row, so statistics never depend on a Channel/Proxy row still
+    existing. Deleting a channel or proxy leaves its history untouched.
+
+    event_type values used:
+      start           user opened the bot (/start)
+      request_proxy   user tapped 'Get proxy'
+      proxy_served    a proxy link was actually delivered (ref = proxy id)
+      join_gate_shown user was shown the forced-join screen
+      recheck_click   user tapped 'I joined, check me'
+      join_passed     user cleared the forced-join gate
+      report_broken   user reported a proxy broken (ref = proxy id)
+      promo_shown     sponsor/promo suggestion was shown to a user
+      broadcast_sent  a broadcast message was delivered (ref = manual|auto)
+    """
+    __tablename__ = "events"
+    id = Column(Integer, primary_key=True)
+    event_type = Column(String(32), nullable=False, index=True)
+    chat_id = Column(BigInteger, nullable=True, index=True)   # the user involved
+    ref = Column(String(128), nullable=True)                  # channel id / proxy id / mode
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ChannelStat(Base):
+    """Per-channel counters keyed by the channel's chat_id STRING, kept in a
+    separate table from `channels`. This is deliberate: if the admin deletes a
+    channel from the config, its historical stats (prompts shown, verified
+    joins/leaves) are NOT lost — the bot keeps full history and functionality.
+    """
+    __tablename__ = "channel_stats"
+    chat_id = Column(String(128), primary_key=True)
+    title = Column(String(255), nullable=True)      # last-known title (cached)
+    join_prompts = Column(Integer, default=0, nullable=False)   # times shown in join gate
+    promo_shows = Column(Integer, default=0, nullable=False)    # times shown as sponsor
+    joins = Column(Integer, default=0, nullable=False)          # verified joins (bot admin)
+    leaves = Column(Integer, default=0, nullable=False)         # verified leaves (bot admin)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Channel(Base):
@@ -135,6 +181,10 @@ _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS wants_notify BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS promo_count INTEGER NOT NULL DEFAULT 3",
     "ALTER TABLE channels ADD COLUMN IF NOT EXISTS shown_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS broadcast_auto_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS broadcast_auto_message TEXT",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS broadcast_auto_hours INTEGER NOT NULL DEFAULT 24",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS broadcast_last_sent_at TIMESTAMP",
 ]
 
 

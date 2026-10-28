@@ -72,7 +72,8 @@ def admin_main_menu():
             [KeyboardButton("➕ افزودن پروکسی"), KeyboardButton("📋 لیست پروکسی‌ها")],
             [KeyboardButton("⚙️ روش انتخاب"), KeyboardButton("🔁 چرخش (Rotation)")],
             [KeyboardButton("📢 کانال‌های اجباری"), KeyboardButton("📝 پیام تبلیغاتی")],
-            [KeyboardButton("📊 آمار"), KeyboardButton("🚀 دریافت پروکسی")],
+            [KeyboardButton("📣 پیام همگانی"), KeyboardButton("📊 آمار")],
+            [KeyboardButton("🚀 دریافت پروکسی")],
         ],
         resize_keyboard=True,
     )
@@ -140,18 +141,51 @@ def notify_prompt_kb(proxy_id: int):
     ])
 
 
-def broken_report_kb(proxy_id: int, link: str = None):
+def broken_report_kb(proxy_id: int, link: str = None, reporter_id: int = 0):
     """Buttons attached to the admin notice when a user reports a broken proxy.
 
     If `link` is given, a URL 'Test' button is added that opens the proxy in
     the admin's own Telegram — exactly like a normal user connecting — so the
     admin tests it with their real client/network instead of a server-side probe.
+
+    If `reporter_id` is given, two reply buttons let the admin answer the
+    reporting user directly: confirm the proxy is healthy, or tell them it is
+    being fixed (which also re-subscribes them to the 'new proxy' notification).
     """
     rows = []
     if link:
         rows.append([InlineKeyboardButton("🧪 تست پروکسی (اتصال)", url=link)])
+    if reporter_id:
+        rows.append([
+            InlineKeyboardButton("✅ سالم است (اطلاع به کاربر)",
+                                 callback_data=f"rpt_ok:{proxy_id}:{reporter_id}"),
+            InlineKeyboardButton("🛠 در حال رفع (اطلاع به کاربر)",
+                                 callback_data=f"rpt_fix:{proxy_id}:{reporter_id}"),
+        ])
     rows.append([InlineKeyboardButton("⚪️ غیرفعال کردن این پروکسی", callback_data=f"rpt_off:{proxy_id}")])
     return InlineKeyboardMarkup(rows)
+
+
+def broadcast_admin_kb(auto_enabled: bool, hours: int):
+    """Admin controls for the broadcast feature (manual + automatic)."""
+    auto = "🟢 خودکار: روشن" if auto_enabled else "⚪️ خودکار: خاموش"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📤 ارسال دستی (الان)", callback_data="bc_manual")],
+        [InlineKeyboardButton(auto, callback_data="bc_auto_toggle")],
+        [InlineKeyboardButton("✏️ تنظیم متن خودکار (HTML)", callback_data="bc_auto_set")],
+        [InlineKeyboardButton(f"⏱ بازه ارسال: هر {hours} ساعت", callback_data="bc_auto_hours")],
+        [InlineKeyboardButton("👁 پیش‌نمایش متن خودکار", callback_data="bc_auto_preview")],
+    ])
+
+
+def broadcast_interval_kb():
+    """Quick presets for the automatic-broadcast interval."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("هر ۱۲ ساعت (نیم روز)", callback_data="bc_int:12")],
+        [InlineKeyboardButton("هر روز (۲۴ ساعت)", callback_data="bc_int:24")],
+        [InlineKeyboardButton("یک روز در میان (۴۸ ساعت)", callback_data="bc_int:48")],
+        [InlineKeyboardButton("تعداد ساعت دلخواه", callback_data="bc_int:custom")],
+    ])
 
 
 def promo_admin_kb(enabled: bool):

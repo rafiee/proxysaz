@@ -4,17 +4,18 @@ import logging
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ContextTypes, filters,
+    ChatMemberHandler, ContextTypes, filters,
 )
 
 from .config import BOT_TOKEN
 from .database import init_db
 from .handlers_user import (
     cmd_start, on_get_proxy, on_recheck_join, on_report, on_another,
-    is_admin, GET_PROXY_TEXT,
+    on_chat_member, is_admin, GET_PROXY_TEXT,
 )
 from .handlers_admin import admin_menu_router, admin_await_router
 from .handlers_admin_cb import admin_callback
+from .broadcast import auto_broadcast_tick
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -53,6 +54,16 @@ async def text_dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _post_init(app: Application):
     await init_db()
     log.info("Database initialized.")
+    # Schedule the automatic broadcast tick (self-gates on interval + enabled).
+    jq = getattr(app, "job_queue", None)
+    if jq is not None:
+        jq.run_repeating(auto_broadcast_tick, interval=3600, first=120)
+        log.info("Auto-broadcast job scheduled (hourly check).")
+    else:
+        log.warning(
+            "JobQueue unavailable — automatic broadcast disabled. "
+            "Install python-telegram-bot[job-queue] to enable it."
+        )
 
 
 def build_app() -> Application:
@@ -66,9 +77,11 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(on_another, pattern=r"^another:"))
     app.add_handler(CallbackQueryHandler(
         admin_callback,
-        pattern=r"^(strat:|rot:|px_|ch_|fj_toggle|notify:|rpt_|promo_)",
+        pattern=r"^(strat:|rot:|px_|ch_|fj_toggle|notify:|rpt_|promo_|bc_)",
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_dispatch))
+    # Track verified joins/leaves in channels where the bot is an admin.
+    app.add_handler(ChatMemberHandler(on_chat_member, ChatMemberHandler.CHAT_MEMBER))
     return app
 
 
