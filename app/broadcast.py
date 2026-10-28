@@ -159,13 +159,13 @@ async def push_menu_to_all(bot):
     users get the normal menu. Returns (sent, failed).
     """
     # Imported here to avoid a circular import at module load.
-    from .config import ADMIN_IDS
+    from .config import ADMIN_CHAT_IDS
     from .keyboards import admin_main_menu, user_main_menu
 
     async with async_session() as s:
         user_ids = list((await s.execute(select(User.chat_id))).scalars().all())
 
-    admin_ids = set(int(a) for a in ADMIN_IDS)
+    admin_ids = set(int(a) for a in ADMIN_CHAT_IDS)
     notice = "✨ منوی ربات به‌روز شد. دکمه‌های جدید اکنون در دسترس هستند."
 
     sent = 0

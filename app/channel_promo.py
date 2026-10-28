@@ -39,25 +39,56 @@ def _resolve_url(ch, invite_fallback=None):
 
 
 async def _logo_file_id(bot, ch):
-    """Return the channel's small (badge-size) avatar file_id, or None."""
+    """Return the channel's small (badge-size) avatar as raw bytes, or None.
+
+    We DOWNLOAD the avatar and re-send the bytes instead of passing the
+    profile-photo file_id straight to send_photo: Telegram often rejects a
+    chat-photo file_id in sendPhoto ("wrong file identifier"), which is why the
+    logo looked empty before. Bytes always work.
+    """
     try:
         chat = await bot.get_chat(_api_chat_id(ch.chat_id))
         photo = getattr(chat, "photo", None)
-        if photo is not None:
-            return photo.small_file_id
-    except Exception:
+        if photo is None:
+            return None
+        file_id = getattr(photo, "small_file_id", None) or getattr(photo, "big_file_id", None)
+        if not file_id:
+            return None
+        tg_file = await bot.get_file(file_id)
+        data = await tg_file.download_as_bytearray()
+        return bytes(data) if data else None
+    except Exception as e:
+        log.warning("logo fetch failed for %s: %s", ch.chat_id, e)
         return None
-    return None
+
+
+async def _channel_bio(bot, ch):
+    """Fetch the channel's own description/bio live via get_chat, or None."""
+    try:
+        chat = await bot.get_chat(_api_chat_id(ch.chat_id))
+        return (getattr(chat, "description", None) or getattr(chat, "bio", None) or "").strip() or None
+    except Exception as e:
+        log.warning("bio fetch failed for %s: %s", ch.chat_id, e)
+        return None
 
 
 async def send_described_channel(bot, chat_id, ch):
     """Send one channel's rich promo card: optional avatar + optional image +
-    HTML text + a Subscribe button."""
+    HTML text (custom or the channel's own bio) + a Subscribe button."""
     url = _resolve_url(ch)
     kb = subscribe_button(url, ch.title) if url else None
-    body = (getattr(ch, "desc_html", None) or "").strip() or (ch.title or str(ch.chat_id))
+
+    # Text source: the channel's own bio (if that toggle is on) or custom HTML.
+    body = ""
+    if getattr(ch, "use_channel_bio", False):
+        body = (await _channel_bio(bot, ch)) or ""
+    if not body.strip():
+        body = (getattr(ch, "desc_html", None) or "").strip()
+    if not body.strip():
+        body = ch.title or str(ch.chat_id)
+
     image = (getattr(ch, "desc_image", None) or "").strip()
-    logo_id = await _logo_file_id(bot, ch) if getattr(ch, "logo_enabled", False) else None
+    logo = await _logo_file_id(bot, ch) if getattr(ch, "logo_enabled", False) else None
 
     async def _send_photo(file_ref, caption, markup):
         try:
@@ -68,20 +99,21 @@ async def send_described_channel(bot, chat_id, ch):
             try:
                 await bot.send_photo(chat_id, file_ref, caption=caption, reply_markup=markup)
                 return True
-            except Exception:
+            except Exception as e:
+                log.warning("send_photo failed for %s: %s", ch.chat_id, e)
                 return False
 
     # Both a custom image and the avatar: show the small avatar as a lead-in,
     # then the main image card. One photo per message is a Telegram limit.
-    if image and logo_id:
-        await _send_photo(logo_id, None, None)
+    if image and logo:
+        await _send_photo(logo, None, None)
         if await _send_photo(image, body, kb):
             return
     elif image:
         if await _send_photo(image, body, kb):
             return
-    elif logo_id:
-        if await _send_photo(logo_id, body, kb):
+    elif logo:
+        if await _send_photo(logo, body, kb):
             return
 
     # Text-only fallback (no image, or photo send failed).

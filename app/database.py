@@ -119,6 +119,9 @@ class Channel(Base):
     desc_html = Column(Text, nullable=True)            # Telegram-HTML body/caption
     desc_image = Column(Text, nullable=True)           # uploaded photo file_id (or URL)
     logo_enabled = Column(Boolean, default=False, nullable=False)  # show channel avatar
+    # When True, the description TEXT is taken automatically from the channel's
+    # own bio/description (fetched live via get_chat) instead of desc_html.
+    use_channel_bio = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -221,6 +224,7 @@ _MIGRATIONS = [
     "ALTER TABLE channels ADD COLUMN IF NOT EXISTS desc_html TEXT",
     "ALTER TABLE channels ADD COLUMN IF NOT EXISTS desc_image TEXT",
     "ALTER TABLE channels ADD COLUMN IF NOT EXISTS logo_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS use_channel_bio BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 

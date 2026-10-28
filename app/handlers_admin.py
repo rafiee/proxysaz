@@ -9,6 +9,7 @@ from .database import async_session, get_settings, Proxy, Channel, User, ProxyUs
 from .keyboards import (
     selection_strategy_kb, rotation_kb, channels_kb, admin_proxy_row,
     notify_prompt_kb, promo_admin_kb, broadcast_admin_kb, report_messages_kb,
+    settings_menu_kb, admin_main_menu, cancel_kb,
 )
 from .proxy_utils import parse_proxy_link, ProxyParseError
 from .stats import gather_stats, render_stats
@@ -16,50 +17,43 @@ from .broadcast import do_broadcast, edit_last_broadcast, push_menu_to_all
 from .texts import DEFAULT_REPORT_OK, DEFAULT_REPORT_FIX
 
 # Menu button labels
-BTN_ADD = "➕ افزودن پروکسی"
 BTN_LIST = "📋 لیست پروکسی‌ها"
-BTN_STRAT = "⚙️ روش انتخاب"
-BTN_ROT = "🔁 چرخش (Rotation)"
-BTN_CH = "📢 کانال‌های اجباری"
+BTN_CH = "📢 کانال‌های اسپانسر"
 BTN_PROMO = "📝 پیام تبلیغاتی"
 BTN_BROADCAST = "📣 پیام همگانی"
 BTN_STATS = "📊 آمار"
-BTN_REPORTS = "🛠 پیام‌های گزارش"
+BTN_SETTINGS = "⚙️ تنظیمات"
 BTN_REFRESH = "🔄 بروزرسانی منو"
+BTN_GET_PROXY = "🚀 دریافت پروکسی"
+
+# Every top-level menu label. If any of these arrives while we are waiting for
+# a text input, the admin is clearly trying to leave the current step, so we
+# cancel the pending input and let the menu router handle it (fixes being
+# "stuck" mid-flow and seeing 'invalid proxy format' for every tap).
+MENU_BUTTONS = {
+    BTN_LIST, BTN_CH, BTN_PROMO, BTN_BROADCAST, BTN_STATS,
+    BTN_SETTINGS, BTN_REFRESH, BTN_GET_PROXY,
+}
+
+# Words that explicitly cancel a pending input step.
+CANCEL_WORDS = {"/cancel", "لغو", "انصراف", "❌ انصراف", "❌ لغو", "بازگشت", "cancel"}
 
 
 def is_admin(chat_id: int) -> bool:
     return chat_id in ADMIN_CHAT_IDS
 
 
+def _clear_await(context):
+    """Drop any pending input step and its scratch keys."""
+    for k in ("await", "pending_proxy", "channel_cfg_id", "report_target"):
+        context.user_data.pop(k, None)
+
+
 async def admin_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Handle an admin MENU button press. Return True if it was handled."""
     text = (update.message.text or "").strip()
-    if text == BTN_ADD:
-        context.user_data["await"] = "proxy_link"
-        await update.message.reply_text(
-            "لینک پروکسی را بفرستید (تک لینک):\n"
-            "مثال: https://t.me/proxy?server=1.2.3.4&port=443&secret=ee..."
-        )
-        return True
     if text == BTN_LIST:
         await _list_proxies(update)
-        return True
-    if text == BTN_STRAT:
-        async with async_session() as s:
-            st = await get_settings(s)
-            await update.message.reply_text(
-                "روش انتخاب پروکسی را انتخاب کنید:",
-                reply_markup=selection_strategy_kb(st.selection_strategy),
-            )
-        return True
-    if text == BTN_ROT:
-        async with async_session() as s:
-            st = await get_settings(s)
-            await update.message.reply_text(
-                "تنظیمات چرخش پروکسی:",
-                reply_markup=rotation_kb(st.rotation_mode, st.rotation_hours or 0),
-            )
         return True
     if text == BTN_CH:
         await _list_channels(update)
@@ -73,8 +67,11 @@ async def admin_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == BTN_STATS:
         await _stats(update)
         return True
-    if text == BTN_REPORTS:
-        await _report_messages_panel(update)
+    if text == BTN_SETTINGS:
+        await update.message.reply_text(
+            "⚙️ تنظیمات ربات — یک مورد را انتخاب کنید:",
+            reply_markup=settings_menu_kb(),
+        )
         return True
     if text == BTN_REFRESH:
         await update.message.reply_text("در حال بروزرسانی منو برای همه کاربران… ⏳")
@@ -92,6 +89,21 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not action:
         return False
     text = (update.message.text or "").strip()
+
+    # Explicit cancel -> drop the pending step and restore the menu.
+    if text.lower() in {w.lower() for w in CANCEL_WORDS}:
+        _clear_await(context)
+        await update.message.reply_text(
+            "لغو شد. به منوی اصلی برگشتید.",
+            reply_markup=admin_main_menu(),
+        )
+        return True
+
+    # Any top-level menu button pressed mid-flow -> abandon the pending step and
+    # let the menu router handle the button (so the admin is never trapped).
+    if text in MENU_BUTTONS:
+        _clear_await(context)
+        return False
 
     if action == "proxy_link":
         try:
@@ -127,7 +139,11 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await s.commit()
             new_id = p.id
         await update.message.reply_text(
-            f"پروکسی «{text}» ذخیره و فعال شد ✅\nآیا به کاربران اطلاع داده شود؟",
+            f"پروکسی «{text}» ذخیره و فعال شد ✅",
+            reply_markup=admin_main_menu(),
+        )
+        await update.message.reply_text(
+            "آیا به کاربران اطلاع داده شود؟",
             reply_markup=notify_prompt_kb(new_id),
         )
         return True
@@ -173,7 +189,10 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
         async with async_session() as s:
             s.add(Channel(chat_id=chat_id, title=title, is_required=True))
             await s.commit()
-        await update.message.reply_text(f"کانال «{title}» اضافه شد ✅")
+        await update.message.reply_text(
+            f"کانال «{title}» اضافه شد ✅",
+            reply_markup=admin_main_menu(),
+        )
         return True
 
     if action == "promo_message":
@@ -307,7 +326,10 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if not getattr(ch, "desc_enabled", False):
                 ch.desc_enabled = True
             await s.commit()
-        await update.message.reply_text("✅ متن توضیحات کانال ذخیره شد (توضیحات روشن شد 🟢).")
+        await update.message.reply_text(
+            "✅ متن توضیحات کانال ذخیره شد (توضیحات روشن شد 🟢).",
+            reply_markup=admin_main_menu(),
+        )
         return True
 
 
@@ -334,7 +356,10 @@ async def admin_photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not getattr(ch, "desc_enabled", False):
             ch.desc_enabled = True
         await s.commit()
-    await update.message.reply_text("✅ تصویر کانال ذخیره شد (توضیحات روشن شد 🟢).")
+    await update.message.reply_text(
+        "✅ تصویر کانال ذخیره شد (توضیحات روشن شد 🟢).",
+        reply_markup=admin_main_menu(),
+    )
     return True
 
 
@@ -359,13 +384,24 @@ async def build_proxy_card(session, p, st):
 
 
 async def _list_proxies(update: Update):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    add_kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("➕ افزودن پروکسی جدید", callback_data="px_add")]]
+    )
     async with async_session() as s:
         res = await s.execute(select(Proxy).order_by(Proxy.id))
         proxies = list(res.scalars().all())
         st = await get_settings(s)
         if not proxies:
-            await update.message.reply_text("هیچ پروکسی‌ای ثبت نشده است.")
+            await update.message.reply_text(
+                "هیچ پروکسی‌ای ثبت نشده است.",
+                reply_markup=add_kb,
+            )
             return
+        await update.message.reply_text(
+            f"📋 لیست پروکسی‌ها ({len(proxies)} مورد):",
+            reply_markup=add_kb,
+        )
         for p in proxies:
             txt, markup = await build_proxy_card(s, p, st)
             await update.message.reply_text(txt, reply_markup=markup)
@@ -377,10 +413,10 @@ async def _list_channels(update: Update):
         channels = list(res.scalars().all())
         st = await get_settings(s)
     await update.message.reply_text(
-        "کانال‌های اجباری (روی هرکدام بزنید تا اجباری/اختیاری شود):\n"
-        "برای افزودن، شناسه کانال به صورت `@username | عنوان` بفرستید.",
+        "📢 کانال‌های اسپانسر\n"
+        "روی نام هر کانال بزنید تا بین حالت «اجباری» و «اختیاری» جابه‌جا شود.\n"
+        "برای تنظیم توضیحات/تصویر/لوگوی هر کانال روی «⚙️ تنظیمات» بزنید.",
         reply_markup=channels_kb(channels, force_enabled=getattr(st, "force_join_enabled", True)),
-        parse_mode="Markdown",
     )
 
 

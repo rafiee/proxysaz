@@ -25,6 +25,38 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     data = q.data or ""
 
+    # ── Settings sub-menu entries ──
+    if data.startswith("set:"):
+        sub = data.split(":", 1)[1]
+        await q.answer()
+        async with async_session() as s:
+            st = await get_settings(s)
+            if sub == "strat":
+                await q.message.reply_text(
+                    "روش انتخاب پروکسی را انتخاب کنید:",
+                    reply_markup=selection_strategy_kb(st.selection_strategy),
+                )
+            elif sub == "health":
+                await q.message.reply_text(
+                    "⏱ دوره بررسی سلامت پروکسی (چرخش):\n"
+                    "در حالت خودکار، ربات هر چند ساعت یک‌بار پروکسی فعال را چرخش می‌دهد.",
+                    reply_markup=rotation_kb(st.rotation_mode, st.rotation_hours or 0),
+                )
+            elif sub == "reports":
+                has_ok = bool((getattr(st, "report_ok_message", None) or "").strip())
+                has_fix = bool((getattr(st, "report_fix_message", None) or "").strip())
+                ok_state = "سفارشی ✍️" if has_ok else "پیش‌فرض"
+                fix_state = "سفارشی ✍️" if has_fix else "پیش‌فرض"
+                await q.message.reply_text(
+                    "🛠 پیام‌های پاسخ به گزارش خرابی\n\n"
+                    "این دو پیام زمانی به کاربرِ گزارش‌دهنده ارسال می‌شوند که شما روی دکمه‌های "
+                    "«✅ سالم است» یا «🛠 در حال رفع» بزنید.\n\n"
+                    f"• پیام «سالم است»: {ok_state}\n"
+                    f"• پیام «در حال رفع»: {fix_state}",
+                    reply_markup=report_messages_kb(),
+                )
+        return
+
     # ── broken-proxy report: admin deactivates the proxy ──
     if data.startswith("rpt_off:"):
         pid = int(data.split(":", 1)[1])
@@ -211,6 +243,17 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── proxy ops ──
+    if data == "px_add":
+        from .keyboards import cancel_kb
+        context.user_data["await"] = "proxy_link"
+        await q.answer()
+        await q.message.reply_text(
+            "لینک پروکسی را بفرستید (تک لینک):\n"
+            "مثال: https://t.me/proxy?server=1.2.3.4&port=443&secret=ee...\n\n"
+            "برای لغو، روی «❌ انصراف» بزنید یا /cancel بفرستید.",
+            reply_markup=cancel_kb(),
+        )
+        return
     if data.startswith("px_"):
         op, pid = data.split(":", 1)
         pid = int(pid)
@@ -464,22 +507,41 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await q.answer("لوگوی کانال روشن شد 🟢 (عکس پروفایل کوچک کانال)", show_alert=True)
                 else:
                     await q.answer("لوگوی کانال خاموش شد ⚪️")
+            elif op == "chd_bio":
+                ch.use_channel_bio = not getattr(ch, "use_channel_bio", False)
+                if ch.use_channel_bio and not getattr(ch, "desc_enabled", False):
+                    ch.desc_enabled = True
+                await s.commit()
+                if ch.use_channel_bio:
+                    await q.answer(
+                        "متن توضیحات از خود کانال گرفته می‌شود 🟢\n"
+                        "نکته: برای خواندن توضیحات کانال، ربات باید عضو/ادمین آن کانال باشد.",
+                        show_alert=True,
+                    )
+                else:
+                    await q.answer("متن از خود کانال خاموش شد ⚪️ (از متن سفارشی شما استفاده می‌شود)")
             elif op == "chd_text":
+                from .keyboards import cancel_kb
                 context.user_data["await"] = "channel_text"
                 context.user_data["channel_cfg_id"] = cid
                 await q.answer()
                 await q.message.reply_text(
                     "متن توضیحات این کانال را بفرستید (HTML تلگرام پشتیبانی می‌شود).\n"
-                    "این متن بالای دکمه«عضویت» به کاربر نشان داده می‌شود.",
+                    "این متن بالای دکمه«عضویت» به کاربر نشان داده می‌شود.\n\n"
+                    "برای لغو، روی «❌ انصراف» بزنید یا /cancel بفرستید.",
+                    reply_markup=cancel_kb(),
                 )
                 return
             elif op == "chd_img":
+                from .keyboards import cancel_kb
                 context.user_data["await"] = "channel_img"
                 context.user_data["channel_cfg_id"] = cid
                 await q.answer()
                 await q.message.reply_text(
                     "یک عکس برای این کانال بفرستید (به صورت عکس، نه فایل).\n"
-                    "این عکس بالای متن تبلیغ کانال نمایش داده می‌شود.",
+                    "این عکس بالای متن تبلیغ کانال نمایش داده می‌شود.\n\n"
+                    "برای لغو، روی «❌ انصراف» بزنید یا /cancel بفرستید.",
+                    reply_markup=cancel_kb(),
                 )
                 return
             elif op == "chd_imgclr":
@@ -518,12 +580,15 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("ch_"):
         if data == "ch_add":
+            from .keyboards import cancel_kb
             context.user_data["await"] = "channel_add"
             await q.answer()
             await q.message.reply_text(
                 "شناسه کانال را بفرستید به صورت:\n`@username | عنوان`\n"
-                "یا شناسه عددی: `-1001234567890 | عنوان`",
+                "یا شناسه عددی: `-1001234567890 | عنوان`\n\n"
+                "برای لغو، روی «❌ انصراف» بزنید یا /cancel بفرستید.",
                 parse_mode="Markdown",
+                reply_markup=cancel_kb(),
             )
             return
         if data == "ch_back":
@@ -536,7 +601,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.answer()
             try:
                 await q.edit_message_text(
-                    "کانال‌های اجباری (روی هرکدام بزنید تا اجباری/اختیاری شود):",
+                    "📢 کانال‌های اسپانسر — روی نام کانال بزنید تا اجباری/اختیاری شود:",
                     reply_markup=channels_kb(channels, force_enabled=enabled),
                 )
             except Exception:
@@ -556,12 +621,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await q.answer()
                 desc_on = getattr(ch, "desc_enabled", False)
                 logo_on = getattr(ch, "logo_enabled", False)
+                bio_on = getattr(ch, "use_channel_bio", False)
                 has_img = bool((getattr(ch, "desc_image", None) or "").strip())
                 has_txt = bool((getattr(ch, "desc_html", None) or "").strip())
+                text_src = "از خود کانال" if bio_on else ("سفارشی" if has_txt else "خالی")
                 info = (
                     f"⚙️ تنظیمات کانال: {ch.title or ch.chat_id}\n\n"
                     f"• توضیحات: {'روشن 🟢' if desc_on else 'خاموش ⚪️'}\n"
-                    f"• متن: {'دارد' if has_txt else 'خالی'} | تصویر: {'دارد' if has_img else 'ندارد'}\n"
+                    f"• منبع متن: {text_src} | تصویر: {'دارد' if has_img else 'ندارد'}\n"
                     f"• لوگوی کانال: {'روشن 🟢' if logo_on else 'خاموش ⚪️'}\n\n"
                     "وقتی توضیحات روشن باشد، این کانال در یک پیام جداگانه با تصویر/لوگو و متن، "
                     "و یک دکمه عضویت نمایش داده می‌شود."

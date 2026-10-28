@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS channels (
     desc_html    TEXT,
     desc_image   TEXT,
     logo_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    use_channel_bio BOOLEAN NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMP DEFAULT NOW()
 );
 

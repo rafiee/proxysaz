@@ -13,7 +13,8 @@ from .handlers_user import (
     cmd_start, on_get_proxy, on_recheck_join, on_report, on_another,
     on_chat_member, is_admin, GET_PROXY_TEXT,
 )
-from .handlers_admin import admin_menu_router, admin_await_router, admin_photo_router
+from .handlers_admin import admin_menu_router, admin_await_router, admin_photo_router, _clear_await
+from .keyboards import admin_main_menu, user_main_menu
 from .handlers_admin_cb import admin_callback
 from .broadcast import auto_broadcast_tick
 
@@ -61,6 +62,15 @@ async def photo_dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_photo_router(update, context)
 
 
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Abort any pending input step and restore the menu (admins) so the user
+    is never trapped mid-flow."""
+    _clear_await(context)
+    chat_id = update.effective_chat.id
+    kb = admin_main_menu() if is_admin(chat_id) else user_main_menu()
+    await update.message.reply_text("لغو شد. به منوی اصلی برگشتید.", reply_markup=kb)
+
+
 async def _post_init(app: Application):
     await init_db()
     log.info("Database initialized.")
@@ -82,12 +92,13 @@ def build_app() -> Application:
     app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CallbackQueryHandler(on_recheck_join, pattern=r"^recheck_join$"))
     app.add_handler(CallbackQueryHandler(on_report, pattern=r"^report:"))
     app.add_handler(CallbackQueryHandler(on_another, pattern=r"^another:"))
     app.add_handler(CallbackQueryHandler(
         admin_callback,
-        pattern=r"^(strat:|rot:|px_|chd_|ch_|fj_toggle|notify:|rpt_|rpm_|promo_|bc_)",
+        pattern=r"^(strat:|rot:|px_|chd_|ch_|fj_toggle|notify:|rpt_|rpm_|promo_|bc_|set:)",
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_dispatch))
     app.add_handler(MessageHandler(filters.PHOTO, photo_dispatch))

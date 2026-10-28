@@ -89,13 +89,31 @@ def promo_channels_kb(channels, invite_fallback=None):
 def admin_main_menu():
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton("➕ افزودن پروکسی"), KeyboardButton("📋 لیست پروکسی‌ها")],
-            [KeyboardButton("⚙️ روش انتخاب"), KeyboardButton("🔁 چرخش (Rotation)")],
-            [KeyboardButton("📢 کانال‌های اجباری"), KeyboardButton("📝 پیام تبلیغاتی")],
+            [KeyboardButton("📋 لیست پروکسی‌ها")],
+            [KeyboardButton("📢 کانال‌های اسپانسر"), KeyboardButton("📝 پیام تبلیغاتی")],
             [KeyboardButton("📣 پیام همگانی"), KeyboardButton("📊 آمار")],
-            [KeyboardButton("🛠 پیام‌های گزارش"), KeyboardButton("🔄 بروزرسانی منو")],
+            [KeyboardButton("⚙️ تنظیمات"), KeyboardButton("🔄 بروزرسانی منو")],
             [KeyboardButton("🚀 دریافت پروکسی")],
         ],
+        resize_keyboard=True,
+    )
+
+
+def settings_menu_kb():
+    """Settings sub-menu (inline): proxy-selection way, health-check period,
+    and the report-message templates."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚙️ روش انتخاب پروکسی", callback_data="set:strat")],
+        [InlineKeyboardButton("⏱ دوره بررسی سلامت پروکسی", callback_data="set:health")],
+        [InlineKeyboardButton("🛠 پیام‌های گزارش", callback_data="set:reports")],
+    ])
+
+
+def cancel_kb():
+    """A minimal reply keyboard shown during a pending input step so the admin
+    can always bail out with one tap instead of being stuck typing /start."""
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("❌ انصراف")]],
         resize_keyboard=True,
     )
 
@@ -134,7 +152,7 @@ def rotation_kb(mode, hours):
         [InlineKeyboardButton(f"{mark('manual')}دستی", callback_data="rot:manual")],
         [InlineKeyboardButton(f"{mark('auto')}خودکار (هر {hours} ساعت)", callback_data="rot:auto")],
         [InlineKeyboardButton("⏱ تنظیم بازه (ساعت)", callback_data="rot:sethours")],
-        [InlineKeyboardButton("🔄 چرخش دستی همین الان", callback_data="rot:now")],
+        [InlineKeyboardButton("🔄 بررسی/چرخش دستی همین الان", callback_data="rot:now")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -145,11 +163,17 @@ def channels_kb(channels, force_enabled=True):
     rows.append([InlineKeyboardButton(fj, callback_data="fj_toggle")])
     for ch in channels:
         flag = "🟢 اجباری" if ch.is_required else "⚪️ اختیاری"
-        desc = "📝" if getattr(ch, "desc_enabled", False) else ""
+        desc = " 📝" if getattr(ch, "desc_enabled", False) else ""
+        name = ch.title or ch.chat_id
+        # Line 1: full-width channel name + current required/optional state
+        # (tap to toggle) so the name is never truncated by side buttons.
         rows.append([
-            InlineKeyboardButton(f"{ch.title or ch.chat_id} — {flag}{desc}", callback_data=f"ch_toggle:{ch.id}"),
-            InlineKeyboardButton("⚙️", callback_data=f"ch_cfg:{ch.id}"),
-            InlineKeyboardButton("🗑", callback_data=f"ch_del:{ch.id}"),
+            InlineKeyboardButton(f"{name} — {flag}{desc}", callback_data=f"ch_toggle:{ch.id}"),
+        ])
+        # Line 2: the two narrow action buttons, side by side.
+        rows.append([
+            InlineKeyboardButton("⚙️ تنظیمات", callback_data=f"ch_cfg:{ch.id}"),
+            InlineKeyboardButton("🗑 حذف", callback_data=f"ch_del:{ch.id}"),
         ])
     rows.append([InlineKeyboardButton("➕ افزودن کانال", callback_data="ch_add")])
     return InlineKeyboardMarkup(rows)
@@ -160,13 +184,18 @@ def channel_config_kb(ch):
     image), toggle showing the channel avatar/logo, edit text/image, preview."""
     desc_on = getattr(ch, "desc_enabled", False)
     logo_on = getattr(ch, "logo_enabled", False)
+    bio_on = getattr(ch, "use_channel_bio", False)
     has_img = bool((getattr(ch, "desc_image", None) or "").strip())
     desc_lbl = "🟢 توضیحات: روشن" if desc_on else "⚪️ توضیحات: خاموش"
     logo_lbl = "🟢 لوگوی کانال: روشن" if logo_on else "⚪️ لوگوی کانال: خاموش"
+    bio_lbl = "🟢 متن از خود کانال: روشن" if bio_on else "⚪️ متن از خود کانال: خاموش"
     rows = [
         [InlineKeyboardButton(desc_lbl, callback_data=f"chd_desc:{ch.id}")],
-        [InlineKeyboardButton("✏️ متن توضیحات (HTML)", callback_data=f"chd_text:{ch.id}")],
+        [InlineKeyboardButton(bio_lbl, callback_data=f"chd_bio:{ch.id}")],
     ]
+    # The custom-text button is only useful when NOT pulling text from the bio.
+    if not bio_on:
+        rows.append([InlineKeyboardButton("✏️ متن توضیحات (HTML)", callback_data=f"chd_text:{ch.id}")])
     if has_img:
         rows.append([
             InlineKeyboardButton("🖼 تغییر تصویر", callback_data=f"chd_img:{ch.id}"),
