@@ -132,21 +132,24 @@ def _split(channels):
 
 async def render_join_gate(bot, chat_id, channels):
     """Forced-join gate: described channels as cards + plain ones in a combined
-    keyboard, always ending with exactly one 'I joined, check me' control."""
+    keyboard. Exactly ONE intro/instruction message carries the final
+    'I joined, check me' control — no duplicate text line above it."""
     described, plain = _split(channels)
-    await bot.send_message(
-        chat_id, "برای دریافت پروکسی، ابتدا در کانال‌های زیر عضو شوید:"
-    )
+    # Described channels show up first as their own promo cards (each already
+    # has a Subscribe button), then a SINGLE message carries the instruction
+    # text plus the join/recheck keyboard.
     for ch in described:
         await send_described_channel(bot, chat_id, ch)
     if plain:
         await bot.send_message(
-            chat_id, "کانال‌های زیر را عضو شوید و سپس تایید کنید:",
+            chat_id,
+            "برای دریافت پروکسی، ابتدا در کانال‌های زیر عضو شوید و سپس تایید کنید:",
             reply_markup=join_channels_kb(plain),
         )
     else:
         await bot.send_message(
-            chat_id, "پس از عضویت، دکمه زیر را بزنید:",
+            chat_id,
+            "برای دریافت پروکسی، پس از عضویت در کانال‌های بالا دکمه زیر را بزنید:",
             reply_markup=recheck_only_kb(),
         )
 

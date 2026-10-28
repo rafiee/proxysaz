@@ -8,7 +8,9 @@ from .keyboards import (
     user_main_menu, admin_main_menu, connect_button, join_channels_kb,
     proxy_delivery_kb, broken_report_kb, promo_channels_kb,
 )
-from .membership import missing_channels, optional_channels, unjoined_optional_channels
+from .membership import (
+    missing_channels, gate_channels, optional_channels, unjoined_optional_channels,
+)
 from .rotation import pick_proxy, mark_served, pick_promo_channels
 from .stats import log_event, bump_channel_stat
 from .channel_promo import render_join_gate, render_promo
@@ -51,26 +53,35 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def _serve_proxy(update, context, chat_id, exclude_id=None):
+async def _serve_proxy(update, context, chat_id, exclude_id=None, skip_gate=False):
     """Core: check join gate, pick a proxy, send the Connect + action buttons.
 
     exclude_id: if set, try to hand out a DIFFERENT proxy than this one
     (used by 'get another' / after a broken report). Falls back to whatever
     the strategy picks if no alternative exists.
+    skip_gate: when True, bypass the gate check entirely. The recheck handler
+    uses this after confirming the BLOCK list is clear, so unverifiable
+    required channels (which stay in the SHOW list forever) don't re-trigger
+    the gate in an endless loop.
     """
     async with async_session() as s:
         user = await _ensure_user(s, update.effective_user)
         await log_event(s, "request_proxy", chat_id=chat_id)
-        missing = await missing_channels(context.bot, s, chat_id)
-        if missing:
-            await log_event(s, "join_gate_shown", chat_id=chat_id)
-            for ch in missing:
-                await bump_channel_stat(
-                    s, ch.chat_id, "join_prompts", title=ch.title, commit=False
-                )
-            await s.commit()
-            await render_join_gate(context.bot, chat_id, missing)
-            return
+        if not skip_gate:
+            # SHOW list includes compulsory channels the bot can't verify, so
+            # they still appear to the user. The BLOCK list (verifiable, not
+            # joined) is what actually gates: if it's clear, we let the user
+            # through even when unverifiable channels remain on screen.
+            to_show = await gate_channels(context.bot, s, chat_id)
+            if to_show:
+                await log_event(s, "join_gate_shown", chat_id=chat_id)
+                for ch in to_show:
+                    await bump_channel_stat(
+                        s, ch.chat_id, "join_prompts", title=ch.title, commit=False
+                    )
+                await s.commit()
+                await render_join_gate(context.bot, chat_id, to_show)
+                return
         proxy = await pick_proxy(s)
         if proxy is not None and exclude_id is not None and proxy.id == exclude_id:
             proxy = await pick_proxy(s, exclude_id=exclude_id)
@@ -130,16 +141,19 @@ async def on_recheck_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     async with async_session() as s:
         await log_event(s, "recheck_click", chat_id=q.from_user.id)
-        missing = await missing_channels(context.bot, s, q.from_user.id)
-    if missing:
+        # BLOCK list = verifiable-and-not-joined. Unverifiable required
+        # channels are NOT here, so a channel the bot can't check won't trap
+        # the user: once every channel the bot CAN verify is joined, pass.
+        blocking = await missing_channels(context.bot, s, q.from_user.id)
+    if blocking:
         # Single answer with an alert, then refresh the buttons so ONLY the
-        # channels the user still hasn't joined remain.
+        # channels the user still hasn't joined (and we CAN verify) remain.
         await q.answer(
             "هنوز در همه کانال‌ها عضو نیستید. کانال‌های باقی‌مانده در پایین نشان داده شد.",
             show_alert=True,
         )
         try:
-            await q.edit_message_reply_markup(reply_markup=join_channels_kb(missing))
+            await q.edit_message_reply_markup(reply_markup=join_channels_kb(blocking))
         except Exception:
             pass
         return
@@ -150,7 +164,9 @@ async def on_recheck_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("عضویت شما تایید شد ✅")
     except Exception:
         pass
-    await _serve_proxy(update, context, q.from_user.id)
+    # skip_gate: the BLOCK list is clear; don't re-show the gate for
+    # unverifiable channels that will always stay in the SHOW list.
+    await _serve_proxy(update, context, q.from_user.id, skip_gate=True)
 
 
 async def on_another(update: Update, context: ContextTypes.DEFAULT_TYPE):

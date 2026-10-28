@@ -74,10 +74,15 @@ async def admin_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return True
     if text == BTN_REFRESH:
-        await update.message.reply_text("در حال بروزرسانی منو برای همه کاربران… ⏳")
-        sent, failed = await push_menu_to_all(update.get_bot())
+        # No mass broadcast. Telegram can only swap a reply keyboard by sending
+        # a message, so we just refresh the ADMIN's OWN menu here. Regular
+        # users pick up the new menu automatically the next time they interact
+        # with the bot (every /start and action already attaches the current
+        # keyboard) — no need to ping everyone.
         await update.message.reply_text(
-            f"✅ منوی به‌روز برای کاربران ارسال شد.\nموفق: {sent} | ناموفق: {failed}"
+            "✅ منوی شما به‌روز شد.\n"
+            "نیازی به ارسال پیام همگانی نیست — کاربران منوی جدید را به‌صورت خودکار در اولین استفاده‌ی بعدی می‌بینند.",
+            reply_markup=admin_main_menu(),
         )
         return True
     return False

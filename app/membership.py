@@ -73,9 +73,12 @@ async def unjoined_optional_channels(bot, session, user_id):
 
 
 async def missing_channels(bot, session, user_id):
-    """Return the list of required channels the user has NOT joined.
+    """BLOCK list: required channels that are verifiably NOT joined.
 
-    Channels the bot cannot verify (not admin) are skipped so they don't block.
+    This is the set used to DECIDE whether a user is allowed through. Channels
+    the bot cannot verify (not admin) are skipped here so they never trap a
+    user forever: we can't confirm membership, so we don't block on them.
+    Use `gate_channels()` for what to DISPLAY (that one still shows them).
     If the global force-join switch is OFF, returns [] (no gate).
     """
     st = await get_settings(session)
@@ -92,3 +95,31 @@ async def missing_channels(bot, session, user_id):
             # Bot not admin / channel unreadable -> cannot enforce, skip.
             continue
     return missing
+
+
+async def gate_channels(bot, session, user_id):
+    """SHOW list: required channels to DISPLAY in the join gate.
+
+    Unlike `missing_channels`, this INCLUDES channels the bot cannot verify
+    (not admin / private). A channel the admin marked compulsory must still be
+    shown to the user even if the bot isn't an admin of it and therefore can't
+    confirm membership — otherwise an unverifiable required channel would
+    silently disappear from the gate (the reported bug). Confirmed members are
+    removed. If the global force-join switch is OFF, returns [] (no gate).
+    """
+    st = await get_settings(session)
+    if not getattr(st, "force_join_enabled", True):
+        return []
+    out = []
+    for ch in await required_channels(session):
+        try:
+            m = await bot.get_chat_member(_api_chat_id(ch.chat_id), user_id)
+            status = getattr(m, "status", None)
+            if status in _MEMBER_OK:
+                continue  # confirmed member -> no need to show it
+        except Exception:
+            # Can't verify (not admin / private): still SHOW it so a compulsory
+            # channel appears. It won't BLOCK the user (see missing_channels).
+            pass
+        out.append(ch)
+    return out
