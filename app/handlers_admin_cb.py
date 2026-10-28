@@ -8,9 +8,10 @@ from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User
 from .keyboards import (
     selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb, admin_proxy_row,
-    broadcast_admin_kb, broadcast_interval_kb,
+    broadcast_admin_kb, broadcast_interval_kb, report_messages_kb,
 )
 from .broadcast import do_broadcast
+from .texts import DEFAULT_REPORT_OK, DEFAULT_REPORT_FIX
 
 
 def _is_admin(uid):
@@ -48,15 +49,15 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         plink = None
         async with async_session() as s:
+            st = await get_settings(s)
+            ok_tpl = (getattr(st, "report_ok_message", None) or "").strip() or DEFAULT_REPORT_OK
+            fix_tpl = (getattr(st, "report_fix_message", None) or "").strip() or DEFAULT_REPORT_FIX
             if pid is not None:
                 p = await s.get(Proxy, pid)
                 if p:
                     plink = p.link
         if kind == "rpt_ok":
-            body = (
-                "✅ پروکسی شما بررسی شد و سالم است.\n"
-                "لطفاً اتصال اینترنت و اپ تلگرام خود را بررسی کنید و دوباره وصل شوید."
-            )
+            body = ok_tpl
             markup = None
             if plink:
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -64,7 +65,12 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [[InlineKeyboardButton("⚡️ اتصال دوباره", url=plink)]]
                 )
             try:
-                await context.bot.send_message(reporter, body, reply_markup=markup)
+                try:
+                    await context.bot.send_message(reporter, body, parse_mode="HTML",
+                                                   reply_markup=markup, disable_web_page_preview=True)
+                except Exception:
+                    await context.bot.send_message(reporter, body, reply_markup=markup,
+                                                   disable_web_page_preview=True)
                 await q.answer("به کاربر اطلاع داده شد: پروکسی سالم است ✅", show_alert=True)
             except Exception:
                 await q.answer("ارسال به کاربر ناموفق بود (شاید ربات را بلاک کرده).", show_alert=True)
@@ -75,15 +81,32 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if u:
                     u.wants_notify = True
                     await s.commit()
-            body = (
-                "🛠 گزارش شما بررسی شد. مشکل به‌زودی برطرف می‌شود.\n"
-                "به‌محض آماده‌شدن پروکسی جدید، به شما اطلاع می‌دهیم. ممنون از گزارش شما 🙏"
-            )
+            body = fix_tpl
             try:
-                await context.bot.send_message(reporter, body)
+                try:
+                    await context.bot.send_message(reporter, body, parse_mode="HTML",
+                                                   disable_web_page_preview=True)
+                except Exception:
+                    await context.bot.send_message(reporter, body, disable_web_page_preview=True)
                 await q.answer("به کاربر اطلاع داده شد: در حال رفع مشکل 🛠", show_alert=True)
             except Exception:
                 await q.answer("ارسال به کاربر ناموفق بود (شاید ربات را بلاک کرده).", show_alert=True)
+        return
+
+    # ── broken-report reply: admin sends a CUSTOM free-text message to the user ──
+    if data.startswith("rpt_msg:"):
+        parts = data.split(":")
+        reporter = int(parts[2]) if len(parts) > 2 and parts[2].lstrip("-").isdigit() else None
+        if not reporter:
+            await q.answer("شناسه کاربر گزارش‌دهنده در دسترس نیست.", show_alert=True)
+            return
+        context.user_data["await"] = "report_custom"
+        context.user_data["report_target"] = reporter
+        await q.answer()
+        await q.message.reply_text(
+            "پیام دلخواه خود را برای راهنمایی این کاربر بفرستید (HTML تلگرام پشتیبانی می‌شود).\n"
+            "این پیام فقط به همین کاربر ارسال می‌شود.",
+        )
         return
 
     # ── notify users about a newly added / replaced proxy ──
@@ -289,6 +312,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "این پیام بلافاصله به همه‌ی کاربران ارسال می‌شود.",
         )
         return
+    if data == "bc_edit_last":
+        context.user_data["await"] = "broadcast_edit"
+        await q.answer()
+        await q.message.reply_text(
+            "متن اصلاح‌شدهی آخرین پیام همگانی را بفرستید (HTML تلگرام پشتیبانی می‌شود).\n"
+            "همه‌ی نسخه‌هایی که از آخرین ارسال دستی برای کاربران رفته، ویرایش می‌شوند.",
+        )
+        return
     if data == "bc_auto_toggle":
         async with async_session() as s:
             st = await get_settings(s)
@@ -353,6 +384,49 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
         except Exception as e:
             await q.message.reply_text(f"⚠️ HTML نامعتبر است: {e}\nمتن خام:\n{msg}")
+        return
+
+    # ── report-reply message templates (edit the two canned replies) ──
+    if data == "rpm_set_ok":
+        context.user_data["await"] = "report_msg_ok"
+        await q.answer()
+        await q.message.reply_text(
+            "متن پیام «سالم است» را بفرستید (HTML تلگرام پشتیبانی می‌شود).\n"
+            "این پیام وقتی که روی دکمه«✅ سالم است» بزنید به کاربر ارسال می‌شود.",
+        )
+        return
+    if data == "rpm_set_fix":
+        context.user_data["await"] = "report_msg_fix"
+        await q.answer()
+        await q.message.reply_text(
+            "متن پیام «در حال رفع» را بفرستید (HTML تلگرام پشتیبانی می‌شود).\n"
+            "این پیام وقتی که روی دکمه«🛠 در حال رفع» بزنید به کاربر ارسال می‌شود.",
+        )
+        return
+    if data == "rpm_preview":
+        async with async_session() as s:
+            st = await get_settings(s)
+            ok_msg = (getattr(st, "report_ok_message", None) or "").strip() or DEFAULT_REPORT_OK
+            fix_msg = (getattr(st, "report_fix_message", None) or "").strip() or DEFAULT_REPORT_FIX
+        await q.answer()
+        for label, msg in (("✅ سالم است", ok_msg), ("🛠 در حال رفع", fix_msg)):
+            try:
+                await q.message.reply_text(f"‹{label}›\n\n{msg}", parse_mode="HTML",
+                                           disable_web_page_preview=True)
+            except Exception as e:
+                await q.message.reply_text(f"⚠️ HTML نامعتبر است ({label}): {e}\n{msg}")
+        return
+    if data == "rpm_reset":
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.report_ok_message = None
+            st.report_fix_message = None
+            await s.commit()
+        await q.answer("پیام‌ها به حالت پیش‌فرض بازگردانده شدند ♻️", show_alert=True)
+        try:
+            await q.edit_message_reply_markup(reply_markup=report_messages_kb())
+        except Exception:
+            pass
         return
 
     # ── channel ops ──

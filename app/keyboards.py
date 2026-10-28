@@ -73,6 +73,7 @@ def admin_main_menu():
             [KeyboardButton("⚙️ روش انتخاب"), KeyboardButton("🔁 چرخش (Rotation)")],
             [KeyboardButton("📢 کانال‌های اجباری"), KeyboardButton("📝 پیام تبلیغاتی")],
             [KeyboardButton("📣 پیام همگانی"), KeyboardButton("📊 آمار")],
+            [KeyboardButton("🛠 پیام‌های گزارش"), KeyboardButton("🔄 بروزرسانی منو")],
             [KeyboardButton("🚀 دریافت پروکسی")],
         ],
         resize_keyboard=True,
@@ -162,6 +163,10 @@ def broken_report_kb(proxy_id: int, link: str = None, reporter_id: int = 0):
             InlineKeyboardButton("🛠 در حال رفع (اطلاع به کاربر)",
                                  callback_data=f"rpt_fix:{proxy_id}:{reporter_id}"),
         ])
+        rows.append([
+            InlineKeyboardButton("✏️ پیام دلخواه به کاربر",
+                                 callback_data=f"rpt_msg:{proxy_id}:{reporter_id}"),
+        ])
     rows.append([InlineKeyboardButton("⚪️ غیرفعال کردن این پروکسی", callback_data=f"rpt_off:{proxy_id}")])
     return InlineKeyboardMarkup(rows)
 
@@ -171,6 +176,7 @@ def broadcast_admin_kb(auto_enabled: bool, hours: int):
     auto = "🟢 خودکار: روشن" if auto_enabled else "⚪️ خودکار: خاموش"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📤 ارسال دستی (الان)", callback_data="bc_manual")],
+        [InlineKeyboardButton("✏️ ویرایش آخرین پیام همگانی", callback_data="bc_edit_last")],
         [InlineKeyboardButton(auto, callback_data="bc_auto_toggle")],
         [InlineKeyboardButton("✏️ تنظیم متن خودکار (HTML)", callback_data="bc_auto_set")],
         [InlineKeyboardButton(f"⏱ بازه ارسال: هر {hours} ساعت", callback_data="bc_auto_hours")],
@@ -196,4 +202,15 @@ def promo_admin_kb(enabled: bool):
         [InlineKeyboardButton("✏️ تنظیم متن پیام (HTML)", callback_data="promo_set")],
         [InlineKeyboardButton("🔢 تعداد کانال نمایشی (N)", callback_data="promo_count")],
         [InlineKeyboardButton("👁 پیش‌نمایش پیام", callback_data="promo_preview")],
+    ])
+
+
+def report_messages_kb():
+    """Admin controls to edit the two canned replies sent to a user who
+    reported a broken proxy (the '✅ healthy' and '🛠 being fixed' messages)."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ ویرایش پیام «سالم است»", callback_data="rpm_set_ok")],
+        [InlineKeyboardButton("✏️ ویرایش پیام «در حال رفع»", callback_data="rpm_set_fix")],
+        [InlineKeyboardButton("👁 پیش‌نمایش هر دو پیام", callback_data="rpm_preview")],
+        [InlineKeyboardButton("♻️ بازگرداندن به پیش‌فرض", callback_data="rpm_reset")],
     ])

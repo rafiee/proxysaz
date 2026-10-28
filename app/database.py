@@ -52,6 +52,10 @@ class BotSettings(Base):
     broadcast_auto_message = Column(Text, nullable=True)     # Telegram-HTML
     broadcast_auto_hours = Column(Integer, default=24, nullable=False)
     broadcast_last_sent_at = Column(DateTime, nullable=True)
+    # Editable reply templates for the broken-proxy report flow (Telegram-HTML).
+    # When NULL, the code falls back to the defaults in app/texts.py.
+    report_ok_message = Column(Text, nullable=True)
+    report_fix_message = Column(Text, nullable=True)
 
 
 class Event(Base):
@@ -135,6 +139,20 @@ class ProxyUser(Base):
     __table_args__ = (UniqueConstraint("proxy_id", "chat_id", name="uq_proxy_user"),)
 
 
+class BroadcastMessage(Base):
+    """One row per delivered copy of a MANUAL broadcast, so the admin can edit
+    the text afterwards (fix a typo) across every recipient. Rows are grouped
+    by `batch_id`; the newest batch is the 'last broadcast' that edit targets.
+    Old batches are pruned so this table never grows without bound.
+    """
+    __tablename__ = "broadcast_messages"
+    id = Column(Integer, primary_key=True)
+    batch_id = Column(Integer, nullable=False, index=True)
+    chat_id = Column(BigInteger, nullable=False)
+    message_id = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # ─── Lazy engine/session (empty DATABASE_URL must not crash import) ───
 _engine = None
 _sessionmaker = None
@@ -185,6 +203,8 @@ _MIGRATIONS = [
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS broadcast_auto_message TEXT",
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS broadcast_auto_hours INTEGER NOT NULL DEFAULT 24",
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS broadcast_last_sent_at TIMESTAMP",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS report_ok_message TEXT",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS report_fix_message TEXT",
 ]
 
 

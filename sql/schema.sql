@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     broadcast_auto_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     broadcast_auto_message TEXT,
     broadcast_auto_hours   INTEGER NOT NULL DEFAULT 24,
-    broadcast_last_sent_at TIMESTAMP
+    broadcast_last_sent_at TIMESTAMP,
+    report_ok_message      TEXT,
+    report_fix_message     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS channels (
@@ -84,6 +86,17 @@ CREATE TABLE IF NOT EXISTS channel_stats (
     leaves       INTEGER NOT NULL DEFAULT 0,
     updated_at   TIMESTAMP DEFAULT NOW()
 );
+
+-- Index of delivered copies of recent MANUAL broadcasts, so the admin can
+-- edit a sent broadcast (fix a typo) across all recipients.
+CREATE TABLE IF NOT EXISTS broadcast_messages (
+    id         SERIAL PRIMARY KEY,
+    batch_id   INTEGER NOT NULL,
+    chat_id    BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_broadcast_messages_batch ON broadcast_messages (batch_id);
 
 -- Singleton settings row
 INSERT INTO bot_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;

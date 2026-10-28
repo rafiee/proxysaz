@@ -8,11 +8,12 @@ from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User, ProxyUser
 from .keyboards import (
     selection_strategy_kb, rotation_kb, channels_kb, admin_proxy_row,
-    notify_prompt_kb, promo_admin_kb, broadcast_admin_kb,
+    notify_prompt_kb, promo_admin_kb, broadcast_admin_kb, report_messages_kb,
 )
 from .proxy_utils import parse_proxy_link, ProxyParseError
 from .stats import gather_stats, render_stats
-from .broadcast import do_broadcast
+from .broadcast import do_broadcast, edit_last_broadcast, push_menu_to_all
+from .texts import DEFAULT_REPORT_OK, DEFAULT_REPORT_FIX
 
 # Menu button labels
 BTN_ADD = "➕ افزودن پروکسی"
@@ -23,6 +24,8 @@ BTN_CH = "📢 کانال‌های اجباری"
 BTN_PROMO = "📝 پیام تبلیغاتی"
 BTN_BROADCAST = "📣 پیام همگانی"
 BTN_STATS = "📊 آمار"
+BTN_REPORTS = "🛠 پیام‌های گزارش"
+BTN_REFRESH = "🔄 بروزرسانی منو"
 
 
 def is_admin(chat_id: int) -> bool:
@@ -69,6 +72,16 @@ async def admin_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return True
     if text == BTN_STATS:
         await _stats(update)
+        return True
+    if text == BTN_REPORTS:
+        await _report_messages_panel(update)
+        return True
+    if text == BTN_REFRESH:
+        await update.message.reply_text("در حال بروزرسانی منو برای همه کاربران… ⏳")
+        sent, failed = await push_menu_to_all(update.get_bot())
+        await update.message.reply_text(
+            f"✅ منوی به‌روز برای کاربران ارسال شد.\nموفق: {sent} | ناموفق: {failed}"
+        )
         return True
     return False
 
@@ -182,9 +195,10 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("متن خالی است. دوباره تلاش کنید.")
             return True
         await update.message.reply_text("ارسال پیام همگانی آغاز شد… ⁨⏳⁩")
-        sent, failed = await do_broadcast(update.get_bot(), html_text, mode="manual")
+        sent, failed = await do_broadcast(update.get_bot(), html_text, mode="manual", record=True)
         await update.message.reply_text(
-            f"✅ پیام همگانی ارسال شد.\nموفق: {sent} | ناموفق (بلاک/خطا): {failed}"
+            f"✅ پیام همگانی ارسال شد.\nموفق: {sent} | ناموفق (بلاک/خطا): {failed}\n\n"
+            "اگر اشتباهی دارد، از دکمه«✅️ ویرایش آخرین پیام همگانی» در پنل پیام همگانی استفاده کنید."
         )
         return True
 
@@ -213,7 +227,66 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await _broadcast_panel(update)
         return True
 
-    return False
+    if action == "broadcast_edit":
+        context.user_data.pop("await", None)
+        html_text = update.message.text_html or text
+        if not html_text.strip():
+            await update.message.reply_text("متن خالی است. دوباره تلاش کنید.")
+            return True
+        await update.message.reply_text("در حال ویرایش آخرین پیام همگانی… ⏳")
+        edited, failed, found = await edit_last_broadcast(update.get_bot(), html_text)
+        if not found:
+            await update.message.reply_text(
+                "پیام همگانی قابل ویرایشی یافت نشد. (فقط آخرین پیام دستی قابل ویرایش است.)"
+            )
+            return True
+        await update.message.reply_text(
+            f"✅ آخرین پیام همگانی ویرایش شد.\nویرایش‌شده: {edited} | ناموفق: {failed}\n\n"
+            "نکته: تلگرام اجازه ویرایش پیام را تا ۴۸ ساعت می‌دهد؛ پیام‌های قدیمی‌تر ویرایش نمی‌شوند."
+        )
+        return True
+
+    if action == "report_msg_ok":
+        context.user_data.pop("await", None)
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.report_ok_message = update.message.text_html or text
+            await s.commit()
+        await update.message.reply_text("پیام «سالم است» ذخیره شد ✅")
+        await _report_messages_panel(update)
+        return True
+
+    if action == "report_msg_fix":
+        context.user_data.pop("await", None)
+        async with async_session() as s:
+            st = await get_settings(s)
+            st.report_fix_message = update.message.text_html or text
+            await s.commit()
+        await update.message.reply_text("پیام «در حال رفع» ذخیره شد ✅")
+        await _report_messages_panel(update)
+        return True
+
+    if action == "report_custom":
+        context.user_data.pop("await", None)
+        target = context.user_data.pop("report_target", None)
+        html_text = update.message.text_html or text
+        if not target:
+            await update.message.reply_text("کاربر مقصد مشخص نیست. دوباره از دکمه استفاده کنید.")
+            return True
+        if not html_text.strip():
+            await update.message.reply_text("متن خالی است. دوباره تلاش کنید.")
+            return True
+        try:
+            try:
+                await update.get_bot().send_message(
+                    int(target), html_text, parse_mode="HTML", disable_web_page_preview=True
+                )
+            except Exception:
+                await update.get_bot().send_message(int(target), html_text, disable_web_page_preview=True)
+            await update.message.reply_text("✅ پیام دلخواه به کاربر ارسال شد.")
+        except Exception:
+            await update.message.reply_text("❌ ارسال ناموفق بود (شاید کاربر ربات را بلاک کرده است).")
+        return True
 
 
 async def build_proxy_card(session, p, st):
@@ -316,3 +389,23 @@ async def _stats(update: Update):
         chunk += line + "\n"
     if chunk.strip():
         await update.message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
+
+
+async def _report_messages_panel(update: Update):
+    """Panel to edit the two canned replies sent to a user who reported a
+    broken proxy (the '✅ healthy' and '🛠 being fixed' messages)."""
+    async with async_session() as s:
+        st = await get_settings(s)
+        has_ok = bool((getattr(st, "report_ok_message", None) or "").strip())
+        has_fix = bool((getattr(st, "report_fix_message", None) or "").strip())
+    ok_state = "سفارشی ✍️" if has_ok else "پیش‌فرض"
+    fix_state = "سفارشی ✍️" if has_fix else "پیش‌فرض"
+    await update.message.reply_text(
+        "🛠 پیام‌های پاسخ به گزارش خرابی\n\n"
+        "این دو پیام زمانی به کاربرِ گزارش‌دهنده ارسال می‌شوند که شما روی دکمه‌های "
+        "«✅ سالم است» یا «🛠 در حال رفع» بزنید.\n"
+        "می‌توانید متن آن‌ها را سفارشی کنید (HTML پشتیبانی می‌شود).\n\n"
+        f"• پیام «سالم است»: {ok_state}\n"
+        f"• پیام «در حال رفع»: {fix_state}",
+        reply_markup=report_messages_kb(),
+    )
