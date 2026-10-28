@@ -288,6 +288,55 @@ async def admin_await_router(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ ارسال ناموفق بود (شاید کاربر ربات را بلاک کرده است).")
         return True
 
+    if action == "channel_text":
+        context.user_data.pop("await", None)
+        cid = context.user_data.pop("channel_cfg_id", None)
+        html_text = update.message.text_html or text
+        if not cid:
+            await update.message.reply_text("کانال مشخص نیست. دوباره از دکمه استفاده کنید.")
+            return True
+        if not html_text.strip():
+            await update.message.reply_text("متن خالی است. دوباره تلاش کنید.")
+            return True
+        async with async_session() as s:
+            ch = await s.get(Channel, int(cid))
+            if ch is None:
+                await update.message.reply_text("کانال یافت نشد.")
+                return True
+            ch.desc_html = html_text
+            if not getattr(ch, "desc_enabled", False):
+                ch.desc_enabled = True
+            await s.commit()
+        await update.message.reply_text("✅ متن توضیحات کانال ذخیره شد (توضیحات روشن شد 🟢).")
+        return True
+
+
+async def admin_photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Handle a pending admin photo-upload step. Return True if consumed."""
+    action = context.user_data.get("await")
+    if action != "channel_img":
+        return False
+    if not update.message or not update.message.photo:
+        await update.message.reply_text("عکسی دریافت نشد. لطفاً یک عکس بفرستید.")
+        return True
+    context.user_data.pop("await", None)
+    cid = context.user_data.pop("channel_cfg_id", None)
+    if not cid:
+        await update.message.reply_text("کانال مشخص نیست. دوباره از دکمه استفاده کنید.")
+        return True
+    file_id = update.message.photo[-1].file_id
+    async with async_session() as s:
+        ch = await s.get(Channel, int(cid))
+        if ch is None:
+            await update.message.reply_text("کانال یافت نشد.")
+            return True
+        ch.desc_image = file_id
+        if not getattr(ch, "desc_enabled", False):
+            ch.desc_enabled = True
+        await s.commit()
+    await update.message.reply_text("✅ تصویر کانال ذخیره شد (توضیحات روشن شد 🟢).")
+    return True
+
 
 async def build_proxy_card(session, p, st):
     """Build the (text, keyboard) card for one proxy, reflecting its CURRENT
@@ -341,15 +390,17 @@ async def _promo_panel(update: Update):
         enabled = getattr(st, "promo_enabled", False)
         has_msg = bool((st.promo_message or "").strip())
         count = getattr(st, "promo_count", 3)
+        position = getattr(st, "promo_position", "after")
     status = "روشن 🟢" if enabled else "خاموش ⚪️"
     msg_state = "تنظیم شده" if has_msg else "خالی"
+    pos_state = "قبل از پروکسی" if position == "before" else "بعد از پروکسی"
     await update.message.reply_text(
-        "📝 پیام تبلیغاتی (پس از تحویل پروکسی نمایش داده می‌شود)\n"
-        f"وضعیت: {status} | متن: {msg_state} | تعداد نمایشی: {count}\n\n"
+        "📝 پیام تبلیغاتی (قبل یا بعد از تحویل پروکسی نمایش داده می‌شود)\n"
+        f"وضعیت: {status} | متن: {msg_state} | تعداد نمایشی: {count} | جایگاه: {pos_state}\n\n"
         "کانال‌های اختیاری (اسپانسر) همان کانال‌هایی هستند که در بخش کانال‌ها "
         "روی حالت «اختیاری» تنظیم شده‌اند و زیر پیام تبلیغاتی به کاربر پیشنهاد می‌شوند.\n"
         "فقط کانال‌هایی که کاربر هنوز عضو نشده نمایش داده می‌شوند، آن هم حداکثر به تعداد نمایشی و به صورت چرخشی.",
-        reply_markup=promo_admin_kb(enabled),
+        reply_markup=promo_admin_kb(enabled, position),
     )
 
 

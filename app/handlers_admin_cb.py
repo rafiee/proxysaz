@@ -8,7 +8,7 @@ from .config import ADMIN_CHAT_IDS
 from .database import async_session, get_settings, Proxy, Channel, User
 from .keyboards import (
     selection_strategy_kb, rotation_kb, channels_kb, promo_admin_kb, admin_proxy_row,
-    broadcast_admin_kb, broadcast_interval_kb, report_messages_kb,
+    broadcast_admin_kb, broadcast_interval_kb, report_messages_kb, channel_config_kb,
 )
 from .broadcast import do_broadcast
 from .texts import DEFAULT_REPORT_OK, DEFAULT_REPORT_FIX
@@ -266,9 +266,24 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             st.promo_enabled = not getattr(st, "promo_enabled", False)
             await s.commit()
             enabled = st.promo_enabled
+            position = getattr(st, "promo_position", "after")
         await q.answer("تبلیغ " + ("روشن شد 🟢" if enabled else "خاموش شد ⚪️"))
         try:
-            await q.edit_message_reply_markup(reply_markup=promo_admin_kb(enabled))
+            await q.edit_message_reply_markup(reply_markup=promo_admin_kb(enabled, position))
+        except Exception:
+            pass
+        return
+    if data == "promo_pos":
+        async with async_session() as s:
+            st = await get_settings(s)
+            cur = (getattr(st, "promo_position", "after") or "after").lower()
+            new_pos = "before" if cur != "before" else "after"
+            st.promo_position = new_pos
+            await s.commit()
+            enabled = getattr(st, "promo_enabled", False)
+        await q.answer("نمایش تبلیغ: " + ("قبل از پروکسی 🔼" if new_pos == "before" else "بعد از پروکسی 🔽"))
+        try:
+            await q.edit_message_reply_markup(reply_markup=promo_admin_kb(enabled, new_pos))
         except Exception:
             pass
         return
@@ -429,6 +444,61 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
 
+    # ── per-channel description / logo config ──
+    if data.startswith("chd_"):
+        op, cid = data.split(":", 1)
+        cid = int(cid)
+        async with async_session() as s:
+            ch = await s.get(Channel, cid)
+            if ch is None:
+                await q.answer("کانال یافت نشد.", show_alert=True)
+                return
+            if op == "chd_desc":
+                ch.desc_enabled = not getattr(ch, "desc_enabled", False)
+                await s.commit()
+                await q.answer("توضیحات " + ("روشن شد 🟢" if ch.desc_enabled else "خاموش شد ⚪️"))
+            elif op == "chd_logo":
+                ch.logo_enabled = not getattr(ch, "logo_enabled", False)
+                await s.commit()
+                if ch.logo_enabled:
+                    await q.answer("لوگوی کانال روشن شد 🟢 (عکس پروفایل کوچک کانال)", show_alert=True)
+                else:
+                    await q.answer("لوگوی کانال خاموش شد ⚪️")
+            elif op == "chd_text":
+                context.user_data["await"] = "channel_text"
+                context.user_data["channel_cfg_id"] = cid
+                await q.answer()
+                await q.message.reply_text(
+                    "متن توضیحات این کانال را بفرستید (HTML تلگرام پشتیبانی می‌شود).\n"
+                    "این متن بالای دکمه«عضویت» به کاربر نشان داده می‌شود.",
+                )
+                return
+            elif op == "chd_img":
+                context.user_data["await"] = "channel_img"
+                context.user_data["channel_cfg_id"] = cid
+                await q.answer()
+                await q.message.reply_text(
+                    "یک عکس برای این کانال بفرستید (به صورت عکس، نه فایل).\n"
+                    "این عکس بالای متن تبلیغ کانال نمایش داده می‌شود.",
+                )
+                return
+            elif op == "chd_imgclr":
+                ch.desc_image = None
+                await s.commit()
+                await q.answer("تصویر حذف شد ❌")
+            elif op == "chd_prev":
+                await q.answer()
+                from .channel_promo import send_described_channel
+                await send_described_channel(context.bot, q.from_user.id, ch)
+                return
+            # Refresh the config panel to reflect the new state.
+            fresh = await s.get(Channel, cid)
+        try:
+            await q.edit_message_reply_markup(reply_markup=channel_config_kb(fresh))
+        except Exception:
+            pass
+        return
+
     # ── channel ops ──
     if data == "fj_toggle":
         async with async_session() as s:
@@ -456,12 +526,50 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
             )
             return
+        if data == "ch_back":
+            from sqlalchemy import select
+            async with async_session() as s:
+                res = await s.execute(select(Channel).order_by(Channel.id))
+                channels = list(res.scalars().all())
+                st = await get_settings(s)
+                enabled = getattr(st, "force_join_enabled", True)
+            await q.answer()
+            try:
+                await q.edit_message_text(
+                    "کانال‌های اجباری (روی هرکدام بزنید تا اجباری/اختیاری شود):",
+                    reply_markup=channels_kb(channels, force_enabled=enabled),
+                )
+            except Exception:
+                try:
+                    await q.edit_message_reply_markup(reply_markup=channels_kb(channels, force_enabled=enabled))
+                except Exception:
+                    pass
+            return
         op, cid = data.split(":", 1)
         cid = int(cid)
         async with async_session() as s:
             ch = await s.get(Channel, cid)
             if ch is None:
                 await q.answer("کانال یافت نشد.", show_alert=True)
+                return
+            if op == "ch_cfg":
+                await q.answer()
+                desc_on = getattr(ch, "desc_enabled", False)
+                logo_on = getattr(ch, "logo_enabled", False)
+                has_img = bool((getattr(ch, "desc_image", None) or "").strip())
+                has_txt = bool((getattr(ch, "desc_html", None) or "").strip())
+                info = (
+                    f"⚙️ تنظیمات کانال: {ch.title or ch.chat_id}\n\n"
+                    f"• توضیحات: {'روشن 🟢' if desc_on else 'خاموش ⚪️'}\n"
+                    f"• متن: {'دارد' if has_txt else 'خالی'} | تصویر: {'دارد' if has_img else 'ندارد'}\n"
+                    f"• لوگوی کانال: {'روشن 🟢' if logo_on else 'خاموش ⚪️'}\n\n"
+                    "وقتی توضیحات روشن باشد، این کانال در یک پیام جداگانه با تصویر/لوگو و متن، "
+                    "و یک دکمه عضویت نمایش داده می‌شود."
+                )
+                try:
+                    await q.edit_message_text(info, reply_markup=channel_config_kb(ch))
+                except Exception:
+                    await q.message.reply_text(info, reply_markup=channel_config_kb(ch))
                 return
             if op == "ch_toggle":
                 ch.is_required = not ch.is_required

@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     broadcast_auto_hours   INTEGER NOT NULL DEFAULT 24,
     broadcast_last_sent_at TIMESTAMP,
     report_ok_message      TEXT,
-    report_fix_message     TEXT
+    report_fix_message     TEXT,
+    promo_position         VARCHAR(8) NOT NULL DEFAULT 'after'
 );
 
 CREATE TABLE IF NOT EXISTS channels (
@@ -40,6 +41,10 @@ CREATE TABLE IF NOT EXISTS channels (
     invite_link  TEXT,
     is_required  BOOLEAN NOT NULL DEFAULT TRUE,
     shown_count  INTEGER NOT NULL DEFAULT 0,
+    desc_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    desc_html    TEXT,
+    desc_image   TEXT,
+    logo_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMP DEFAULT NOW()
 );
 

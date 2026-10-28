@@ -11,6 +11,7 @@ from .keyboards import (
 from .membership import missing_channels, optional_channels, unjoined_optional_channels
 from .rotation import pick_proxy, mark_served, pick_promo_channels
 from .stats import log_event, bump_channel_stat
+from .channel_promo import render_join_gate, render_promo
 
 GET_PROXY_TEXT = "🚀 دریافت پروکسی"
 
@@ -68,10 +69,7 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
                     s, ch.chat_id, "join_prompts", title=ch.title, commit=False
                 )
             await s.commit()
-            await update.effective_message.reply_text(
-                "برای دریافت پروکسی، ابتدا در کانال‌های زیر عضو شوید:",
-                reply_markup=join_channels_kb(missing),
-            )
+            await render_join_gate(context.bot, chat_id, missing)
             return
         proxy = await pick_proxy(s)
         if proxy is not None and exclude_id is not None and proxy.id == exclude_id:
@@ -83,13 +81,19 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
             return
         await mark_served(s, proxy, user)
         await log_event(s, "proxy_served", chat_id=chat_id, ref=proxy.id)
-        await update.effective_message.reply_text(
-            "پروکسی شما آماده است! روی دکمه زیر بزنید تا متصل شوید ⚡️",
-            reply_markup=proxy_delivery_kb(proxy.link, proxy.id),
-        )
-        # Optional sponsor promo shown AFTER the proxy.
+
         st = await get_settings(s)
-        if getattr(st, "promo_enabled", False):
+        position = (getattr(st, "promo_position", "after") or "after").lower()
+
+        async def _send_proxy():
+            await update.effective_message.reply_text(
+                "پروکسی شما آماده است! روی دکمه زیر بزنید تا متصل شوید ⚡️",
+                reply_markup=proxy_delivery_kb(proxy.link, proxy.id),
+            )
+
+        async def _send_promo():
+            if not getattr(st, "promo_enabled", False):
+                return
             # Only suggest optional channels the user has NOT joined yet.
             # If there is nothing left to join (no optional channels, or the
             # user is already a member of all of them) we show NOTHING — there
@@ -99,27 +103,23 @@ async def _serve_proxy(update, context, chat_id, exclude_id=None):
             opt = await pick_promo_channels(
                 s, unjoined, getattr(st, "promo_count", 3)
             )
-            if opt:
-                await log_event(s, "promo_shown", chat_id=chat_id, commit=False)
-                for ch in opt:
-                    await bump_channel_stat(
-                        s, ch.chat_id, "promo_shows", title=ch.title, commit=False
-                    )
-                await s.commit()
-                promo_text = (st.promo_message or "").strip()
-                body = promo_text or "برای حمایت از اسپانسرها، می‌توانید در کانال‌های زیر عضو شوید 🙏"
-                try:
-                    await update.effective_message.reply_text(
-                        body,
-                        parse_mode="HTML",
-                        disable_web_page_preview=True,
-                        reply_markup=promo_channels_kb(opt),
-                    )
-                except Exception:
-                    # Fall back to plain text if the admin's HTML is malformed.
-                    await update.effective_message.reply_text(
-                        body, reply_markup=promo_channels_kb(opt)
-                    )
+            if not opt:
+                return
+            await log_event(s, "promo_shown", chat_id=chat_id, commit=False)
+            for ch in opt:
+                await bump_channel_stat(
+                    s, ch.chat_id, "promo_shows", title=ch.title, commit=False
+                )
+            await s.commit()
+            await render_promo(context.bot, chat_id, opt, st.promo_message)
+
+        # Promo can appear BEFORE or AFTER the proxy (admin toggle).
+        if position == "before":
+            await _send_promo()
+            await _send_proxy()
+        else:
+            await _send_proxy()
+            await _send_promo()
 
 
 async def on_get_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):

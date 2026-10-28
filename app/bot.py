@@ -13,7 +13,7 @@ from .handlers_user import (
     cmd_start, on_get_proxy, on_recheck_join, on_report, on_another,
     on_chat_member, is_admin, GET_PROXY_TEXT,
 )
-from .handlers_admin import admin_menu_router, admin_await_router
+from .handlers_admin import admin_menu_router, admin_await_router, admin_photo_router
 from .handlers_admin_cb import admin_callback
 from .broadcast import auto_broadcast_tick
 
@@ -51,6 +51,16 @@ async def text_dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await on_get_proxy(update, context)
 
 
+async def photo_dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Route admin photo uploads (e.g. per-channel description image)."""
+    msg = update.message
+    if msg is None or not msg.photo:
+        return
+    chat_id = update.effective_chat.id
+    if is_admin(chat_id):
+        await admin_photo_router(update, context)
+
+
 async def _post_init(app: Application):
     await init_db()
     log.info("Database initialized.")
@@ -77,9 +87,10 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(on_another, pattern=r"^another:"))
     app.add_handler(CallbackQueryHandler(
         admin_callback,
-        pattern=r"^(strat:|rot:|px_|ch_|fj_toggle|notify:|rpt_|rpm_|promo_|bc_)",
+        pattern=r"^(strat:|rot:|px_|chd_|ch_|fj_toggle|notify:|rpt_|rpm_|promo_|bc_)",
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_dispatch))
+    app.add_handler(MessageHandler(filters.PHOTO, photo_dispatch))
     # Track verified joins/leaves in channels where the bot is an admin.
     app.add_handler(ChatMemberHandler(on_chat_member, ChatMemberHandler.CHAT_MEMBER))
     return app

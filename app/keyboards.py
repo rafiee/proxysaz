@@ -22,11 +22,14 @@ def connect_button(link: str):
 
 
 def proxy_delivery_kb(link: str, proxy_id: int):
-    """Connect button + 'report broken' + 'get another' for a delivered proxy."""
+    """Connect button (alone on the first row) + 'report broken' and
+    'get another' side by side on the second row."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚡️ اتصال به پروکسی", url=link)],
-        [InlineKeyboardButton("⚠️ این پروکسی کار نمی‌کند", callback_data=f"report:{proxy_id}")],
-        [InlineKeyboardButton("🔄 دریافت پروکسی دیگر", callback_data=f"another:{proxy_id}")],
+        [
+            InlineKeyboardButton("⚠️ کار نمی‌کند", callback_data=f"report:{proxy_id}"),
+            InlineKeyboardButton("🔄 پروکسی دیگر", callback_data=f"another:{proxy_id}"),
+        ],
     ])
 
 
@@ -45,6 +48,23 @@ def join_channels_kb(channels, invite_fallback=None):
             rows.append([InlineKeyboardButton(f"➕ {ch.title or ch.chat_id}", url=url)])
     rows.append([InlineKeyboardButton("✅ عضو شدم، بررسی کن", callback_data="recheck_join")])
     return InlineKeyboardMarkup(rows)
+
+
+def recheck_only_kb():
+    """Just the 'I joined, check me' button — used when every required channel
+    was shown as its own described promo message, so the gate still needs one
+    recheck control."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("✅ عضو شدم، بررسی کن", callback_data="recheck_join")]]
+    )
+
+
+def subscribe_button(url: str, title: str = None):
+    """Single Subscribe URL button for one described channel's promo message."""
+    label = "➕ عضویت در کانال"
+    if title:
+        label = f"➕ عضویت: {title}"
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=url)]])
 
 
 def promo_channels_kb(channels, invite_fallback=None):
@@ -125,11 +145,38 @@ def channels_kb(channels, force_enabled=True):
     rows.append([InlineKeyboardButton(fj, callback_data="fj_toggle")])
     for ch in channels:
         flag = "🟢 اجباری" if ch.is_required else "⚪️ اختیاری"
+        desc = "📝" if getattr(ch, "desc_enabled", False) else ""
         rows.append([
-            InlineKeyboardButton(f"{ch.title or ch.chat_id} — {flag}", callback_data=f"ch_toggle:{ch.id}"),
+            InlineKeyboardButton(f"{ch.title or ch.chat_id} — {flag}{desc}", callback_data=f"ch_toggle:{ch.id}"),
+            InlineKeyboardButton("⚙️", callback_data=f"ch_cfg:{ch.id}"),
             InlineKeyboardButton("🗑", callback_data=f"ch_del:{ch.id}"),
         ])
     rows.append([InlineKeyboardButton("➕ افزودن کانال", callback_data="ch_add")])
+    return InlineKeyboardMarkup(rows)
+
+
+def channel_config_kb(ch):
+    """Per-channel settings: toggle a rich description (HTML text + optional
+    image), toggle showing the channel avatar/logo, edit text/image, preview."""
+    desc_on = getattr(ch, "desc_enabled", False)
+    logo_on = getattr(ch, "logo_enabled", False)
+    has_img = bool((getattr(ch, "desc_image", None) or "").strip())
+    desc_lbl = "🟢 توضیحات: روشن" if desc_on else "⚪️ توضیحات: خاموش"
+    logo_lbl = "🟢 لوگوی کانال: روشن" if logo_on else "⚪️ لوگوی کانال: خاموش"
+    rows = [
+        [InlineKeyboardButton(desc_lbl, callback_data=f"chd_desc:{ch.id}")],
+        [InlineKeyboardButton("✏️ متن توضیحات (HTML)", callback_data=f"chd_text:{ch.id}")],
+    ]
+    if has_img:
+        rows.append([
+            InlineKeyboardButton("🖼 تغییر تصویر", callback_data=f"chd_img:{ch.id}"),
+            InlineKeyboardButton("❌ حذف تصویر", callback_data=f"chd_imgclr:{ch.id}"),
+        ])
+    else:
+        rows.append([InlineKeyboardButton("🖼 افزودن تصویر", callback_data=f"chd_img:{ch.id}")])
+    rows.append([InlineKeyboardButton(logo_lbl, callback_data=f"chd_logo:{ch.id}")])
+    rows.append([InlineKeyboardButton("👁 پیش‌نمایش", callback_data=f"chd_prev:{ch.id}")])
+    rows.append([InlineKeyboardButton("« بازگشت به لیست", callback_data="ch_back")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -194,11 +241,14 @@ def broadcast_interval_kb():
     ])
 
 
-def promo_admin_kb(enabled: bool):
+def promo_admin_kb(enabled: bool, position: str = "after"):
     """Admin controls for the promotional message."""
     toggle = "🟢 تبلیغ: روشن" if enabled else "⚪️ تبلیغ: خاموش"
+    pos_lbl = ("🔼 نمایش: قبل از پروکسی" if position == "before"
+               else "🔽 نمایش: بعد از پروکسی")
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(toggle, callback_data="promo_toggle")],
+        [InlineKeyboardButton(pos_lbl, callback_data="promo_pos")],
         [InlineKeyboardButton("✏️ تنظیم متن پیام (HTML)", callback_data="promo_set")],
         [InlineKeyboardButton("🔢 تعداد کانال نمایشی (N)", callback_data="promo_count")],
         [InlineKeyboardButton("👁 پیش‌نمایش پیام", callback_data="promo_preview")],

@@ -46,6 +46,9 @@ class BotSettings(Base):
     # How many OPTIONAL (sponsor) channels to show the user at once, so a large
     # pool of channels is rotated instead of dumping them all (anti-boredom).
     promo_count = Column(Integer, default=3, nullable=False)
+    # Where the promo block is shown relative to the delivered proxy:
+    # 'after' (default) or 'before'.
+    promo_position = Column(String(8), default="after", nullable=False)
     # ── Automatic broadcast ── a recurring message pushed to every user on a
     # fixed interval (half-day / daily / every other day, etc). Toggleable.
     broadcast_auto_enabled = Column(Boolean, default=False, nullable=False)
@@ -108,6 +111,14 @@ class Channel(Base):
     # How many times this channel has been shown as an optional/sponsor
     # suggestion. Used to rotate promo channels by least-shown-first.
     shown_count = Column(Integer, default=0, nullable=False)
+    # ── Per-channel promotional description (works for BOTH required and
+    # optional channels). When desc_enabled is True the channel is presented in
+    # its own message: optional image/logo + HTML text + a Subscribe button,
+    # instead of a plain button in the combined list.
+    desc_enabled = Column(Boolean, default=False, nullable=False)
+    desc_html = Column(Text, nullable=True)            # Telegram-HTML body/caption
+    desc_image = Column(Text, nullable=True)           # uploaded photo file_id (or URL)
+    logo_enabled = Column(Boolean, default=False, nullable=False)  # show channel avatar
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -205,6 +216,11 @@ _MIGRATIONS = [
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS broadcast_last_sent_at TIMESTAMP",
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS report_ok_message TEXT",
     "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS report_fix_message TEXT",
+    "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS promo_position VARCHAR(8) NOT NULL DEFAULT 'after'",
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS desc_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS desc_html TEXT",
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS desc_image TEXT",
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS logo_enabled BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
