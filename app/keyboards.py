@@ -4,6 +4,21 @@ from telegram import (
     ReplyKeyboardMarkup, KeyboardButton,
 )
 
+
+def _styled_btn(text, *, style=None, **kwargs):
+    """Build an InlineKeyboardButton with an optional NATIVE color style.
+
+    Telegram Bot API 9.4 added a real `style` field to InlineKeyboardButton
+    ('success' = green, 'danger' = red, 'primary' = blue; 'link' for callback
+    buttons). python-telegram-bot 21.6 doesn't know this field yet, so we pass
+    it through `api_kwargs` — PTB merges api_kwargs into the JSON it sends to
+    Telegram, so the client renders the real colored button (no emoji dots).
+    On older Telegram clients that don't understand `style`, the button simply
+    falls back to the default theme color — text/behavior stay intact.
+    """
+    api = {"style": style} if style else None
+    return InlineKeyboardButton(text, api_kwargs=api, **kwargs)
+
 # ─── User side ───
 
 
@@ -17,7 +32,7 @@ def user_main_menu():
 def connect_button(link: str):
     """Single big 'Connect' URL button pointing at the t.me proxy link."""
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🟢 ⚡️ اتصال به پروکسی", url=link)]]
+        [[_styled_btn("⚡️ اتصال به پروکسی", style="success", url=link)]]
     )
 
 
@@ -25,14 +40,13 @@ def proxy_delivery_kb(link: str, proxy_id: int):
     """Connect button (alone on the first row) + 'report broken' and
     'get another' side by side on the second row.
 
-    Telegram has NO API to color an inline button, so state/intent is conveyed
-    with a colored dot in the label: 🟢 green = connect, 🔴 red = report broken,
-    🔵 blue = get another."""
+    Native Bot API 9.4 colors: 🟢 success (connect), 🔴 danger (report broken),
+    🔵 primary (get another)."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🟢 ⚡️ اتصال به پروکسی", url=link)],
+        [_styled_btn("⚡️ اتصال به پروکسی", style="success", url=link)],
         [
-            InlineKeyboardButton("🔴 ⚠️ کار نمی‌کند", callback_data=f"report:{proxy_id}"),
-            InlineKeyboardButton("🔵 🔄 پروکسی دیگر", callback_data=f"another:{proxy_id}"),
+            _styled_btn("⚠️ کار نمی‌کند", style="danger", callback_data=f"report:{proxy_id}"),
+            _styled_btn("🔄 پروکسی دیگر", style="primary", callback_data=f"another:{proxy_id}"),
         ],
     ])
 
@@ -94,9 +108,8 @@ def admin_main_menu():
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton("📋 لیست پروکسی‌ها")],
-            [KeyboardButton("📢 کانال‌های اسپانسر"), KeyboardButton("📝 پیام تبلیغاتی")],
-            [KeyboardButton("📣 پیام همگانی"), KeyboardButton("📊 آمار")],
-            [KeyboardButton("⚙️ تنظیمات"), KeyboardButton("🔄 بروزرسانی منو")],
+            [KeyboardButton("📢 کانال‌های اسپانسر"), KeyboardButton("📣 پیام همگانی")],
+            [KeyboardButton("📊 آمار"), KeyboardButton("⚙️ تنظیمات")],
             [KeyboardButton("🚀 دریافت پروکسی")],
         ],
         resize_keyboard=True,
@@ -105,11 +118,14 @@ def admin_main_menu():
 
 def settings_menu_kb():
     """Settings sub-menu (inline): proxy-selection way, health-check period,
-    and the report-message templates."""
+    report-message templates, plus the promo-message panel and menu refresh
+    (both moved here from the main menu)."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚙️ روش انتخاب پروکسی", callback_data="set:strat")],
         [InlineKeyboardButton("⏱ دوره بررسی سلامت پروکسی", callback_data="set:health")],
+        [InlineKeyboardButton("📝 پیام تبلیغاتی", callback_data="set:promo")],
         [InlineKeyboardButton("🛠 پیام‌های گزارش", callback_data="set:reports")],
+        [InlineKeyboardButton("🔄 بروزرسانی منو", callback_data="set:refresh")],
     ])
 
 

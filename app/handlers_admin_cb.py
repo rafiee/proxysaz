@@ -55,6 +55,28 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"• پیام «در حال رفع»: {fix_state}",
                     reply_markup=report_messages_kb(),
                 )
+            elif sub == "promo":
+                enabled = getattr(st, "promo_enabled", False)
+                has_msg = bool((st.promo_message or "").strip())
+                count = getattr(st, "promo_count", 3)
+                position = getattr(st, "promo_position", "after")
+                status = "روشن 🟢" if enabled else "خاموش ⚪️"
+                msg_state = "تنظیم شده" if has_msg else "خالی"
+                pos_state = "قبل از پروکسی" if position == "before" else "بعد از پروکسی"
+                await q.message.reply_text(
+                    "📝 پیام تبلیغاتی (قبل یا بعد از تحویل پروکسی نمایش داده می‌شود)\n"
+                    f"وضعیت: {status} | متن: {msg_state} | تعداد نمایشی: {count} | جایگاه: {pos_state}\n\n"
+                    "کانال‌های اختیاری (اسپانسر) همان کانال‌هایی هستند که در بخش کانال‌ها "
+                    "روی حالت «اختیاری» تنظیم شده‌اند و زیر پیام تبلیغاتی به کاربر پیشنهاد می‌شوند.",
+                    reply_markup=promo_admin_kb(enabled, position),
+                )
+            elif sub == "refresh":
+                from .keyboards import admin_main_menu
+                await q.message.reply_text(
+                    "✅ منوی شما به‌روز شد.\n"
+                    "نیازی به ارسال پیام همگانی نیست — کاربران منوی جدید را به‌صورت خودکار در اولین استفاده‌ی بعدی می‌بینند.",
+                    reply_markup=admin_main_menu(),
+                )
         return
 
     # ── broken-proxy report: admin deactivates the proxy ──
