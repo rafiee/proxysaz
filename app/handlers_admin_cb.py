@@ -642,6 +642,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ch.is_required = not ch.is_required
                 await s.commit()
                 await q.answer("وضعیت کانال تغییر کرد ✅")
+            elif op == "ch_en":
+                ch.is_enabled = not getattr(ch, "is_enabled", True)
+                await s.commit()
+                await q.answer("کانال " + ("فعال شد 🟢" if ch.is_enabled else "غیرفعال شد 🔴"))
+            elif op == "ch_pin":
+                ch.is_pinned = not getattr(ch, "is_pinned", False)
+                await s.commit()
+                await q.answer("پین " + ("شد 📌" if ch.is_pinned else "برداشته شد"))
             elif op == "ch_del":
                 await s.delete(ch)
                 await s.commit()

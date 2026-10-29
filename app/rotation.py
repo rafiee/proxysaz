@@ -14,6 +14,7 @@ one pinned proxy):
              own, so auto-rotation simply re-pins for 'single'.
 """
 from datetime import datetime, timedelta
+import random
 
 from sqlalchemy import select
 
@@ -89,12 +90,19 @@ async def pick_proxy(session, exclude_id=None):
 
 
 async def pick_promo_channels(session, candidates, n):
-    """Pick at most N sponsor channels to show now, rotating the whole pool.
+    """Pick at most N sponsor channels to show now.
 
-    Selection is least-shown-first (deterministic tie-break by id), then the
-    chosen channels' shown_count is incremented and committed. Over many
-    deliveries this cycles through ALL optional channels evenly instead of
-    always showing the same few, so users don't get bored.
+    Rule (admin-requested):
+      1. PINNED channels are always included first. If more channels are
+         pinned than N, a random N of the pinned ones are chosen.
+      2. Any remaining slots are filled RANDOMLY from the non-pinned pool.
+
+    So with N=1 the pinned channel always wins; with no pin, one random
+    channel shows. With N=2 and one pin, the pinned channel is included and
+    the second slot is a random pick among the rest, and so on.
+
+    The chosen channels' shown_count is bumped (kept for stats). `candidates`
+    is already filtered by the caller to enabled + not-yet-joined channels.
     """
     if not candidates:
         return []
@@ -104,8 +112,23 @@ async def pick_promo_channels(session, candidates, n):
         n = 0
     if n <= 0:
         return []
-    ordered = sorted(candidates, key=lambda c: (c.shown_count or 0, c.id))
-    chosen = ordered[:n]
+
+    pinned = [c for c in candidates if getattr(c, "is_pinned", False)]
+    others = [c for c in candidates if not getattr(c, "is_pinned", False)]
+
+    chosen = []
+    if len(pinned) <= n:
+        chosen.extend(pinned)
+    else:
+        chosen.extend(random.sample(pinned, n))
+
+    remaining = n - len(chosen)
+    if remaining > 0 and others:
+        if len(others) <= remaining:
+            chosen.extend(others)
+        else:
+            chosen.extend(random.sample(others, remaining))
+
     for c in chosen:
         c.shown_count = (c.shown_count or 0) + 1
     await session.commit()

@@ -34,15 +34,21 @@ def _api_chat_id(raw):
 
 async def required_channels(session):
     res = await session.execute(
-        select(Channel).where(Channel.is_required == True)  # noqa: E712
+        select(Channel).where(
+            Channel.is_required == True,  # noqa: E712
+            Channel.is_enabled == True,  # noqa: E712
+        )
     )
     return list(res.scalars().all())
 
 
 async def optional_channels(session):
-    """Channels marked NOT required — shown as sponsor/promo suggestions."""
+    """Channels marked NOT required AND enabled — sponsor/promo suggestions."""
     res = await session.execute(
-        select(Channel).where(Channel.is_required == False)  # noqa: E712
+        select(Channel).where(
+            Channel.is_required == False,  # noqa: E712
+            Channel.is_enabled == True,  # noqa: E712
+        )
     )
     return list(res.scalars().all())
 

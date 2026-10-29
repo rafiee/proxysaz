@@ -108,6 +108,12 @@ class Channel(Base):
     title = Column(String(255))
     invite_link = Column(Text, nullable=True)
     is_required = Column(Boolean, default=True, nullable=False)
+    # Master on/off for THIS channel. A disabled channel is never shown
+    # anywhere (gate or sponsor) regardless of its other flags.
+    is_enabled = Column(Boolean, default=True, nullable=False)
+    # Pinned sponsor channel: always included in the promo selection first,
+    # before any random fill. Lets the admin force one channel to always show.
+    is_pinned = Column(Boolean, default=False, nullable=False)
     # How many times this channel has been shown as an optional/sponsor
     # suggestion. Used to rotate promo channels by least-shown-first.
     shown_count = Column(Integer, default=0, nullable=False)
@@ -225,6 +231,8 @@ _MIGRATIONS = [
     "ALTER TABLE channels ADD COLUMN IF NOT EXISTS desc_image TEXT",
     "ALTER TABLE channels ADD COLUMN IF NOT EXISTS logo_enabled BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE channels ADD COLUMN IF NOT EXISTS use_channel_bio BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 

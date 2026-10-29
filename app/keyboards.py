@@ -17,18 +17,22 @@ def user_main_menu():
 def connect_button(link: str):
     """Single big 'Connect' URL button pointing at the t.me proxy link."""
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⚡️ اتصال به پروکسی", url=link)]]
+        [[InlineKeyboardButton("🟢 ⚡️ اتصال به پروکسی", url=link)]]
     )
 
 
 def proxy_delivery_kb(link: str, proxy_id: int):
     """Connect button (alone on the first row) + 'report broken' and
-    'get another' side by side on the second row."""
+    'get another' side by side on the second row.
+
+    Telegram has NO API to color an inline button, so state/intent is conveyed
+    with a colored dot in the label: 🟢 green = connect, 🔴 red = report broken,
+    🔵 blue = get another."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡️ اتصال به پروکسی", url=link)],
+        [InlineKeyboardButton("🟢 ⚡️ اتصال به پروکسی", url=link)],
         [
-            InlineKeyboardButton("⚠️ کار نمی‌کند", callback_data=f"report:{proxy_id}"),
-            InlineKeyboardButton("🔄 پروکسی دیگر", callback_data=f"another:{proxy_id}"),
+            InlineKeyboardButton("🔴 ⚠️ کار نمی‌کند", callback_data=f"report:{proxy_id}"),
+            InlineKeyboardButton("🔵 🔄 پروکسی دیگر", callback_data=f"another:{proxy_id}"),
         ],
     ])
 
@@ -170,7 +174,16 @@ def channels_kb(channels, force_enabled=True):
         rows.append([
             InlineKeyboardButton(f"{name} — {flag}{desc}", callback_data=f"ch_toggle:{ch.id}"),
         ])
-        # Line 2: the two narrow action buttons, side by side.
+        # Line 2: enable/disable (current state via color) + pin (current state).
+        en_on = getattr(ch, "is_enabled", True)
+        pin_on = getattr(ch, "is_pinned", False)
+        en_lbl = "🟢 فعال" if en_on else "🔴 غیرفعال"
+        pin_lbl = "📌 پین‌شده ✅" if pin_on else "📌 پین"
+        rows.append([
+            InlineKeyboardButton(en_lbl, callback_data=f"ch_en:{ch.id}"),
+            InlineKeyboardButton(pin_lbl, callback_data=f"ch_pin:{ch.id}"),
+        ])
+        # Line 3: the two narrow action buttons, side by side.
         rows.append([
             InlineKeyboardButton("⚙️ تنظیمات", callback_data=f"ch_cfg:{ch.id}"),
             InlineKeyboardButton("🗑 حذف", callback_data=f"ch_del:{ch.id}"),
